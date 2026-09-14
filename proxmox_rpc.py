@@ -606,14 +606,17 @@ def _net_stats_worker():
                         _net_stats["last_ping_time"] = now
 
             # 2. Update Speeds every interval or on initial run
-            if now - _net_stats["last_speed_time"] >= interval_sec or _net_stats["down_mbps"] is None:
-                d, u = measure_speeds()
-                with _net_lock:
-                    if d is not None:
-                        _net_stats["down_mbps"] = d
-                    if u is not None:
-                        _net_stats["up_mbps"] = u
-                    _net_stats["last_speed_time"] = now
+            # SAFETY GUARD: Never run heavy bandwidth speed tests while user is actively playing a game!
+            is_gaming = bool(_game_tracker.get("current"))
+            if not is_gaming:
+                if now - _net_stats["last_speed_time"] >= interval_sec or _net_stats["down_mbps"] is None:
+                    d, u = measure_speeds()
+                    with _net_lock:
+                        if d is not None:
+                            _net_stats["down_mbps"] = d
+                        if u is not None:
+                            _net_stats["up_mbps"] = u
+                        _net_stats["last_speed_time"] = now
 
         except Exception:
             pass
