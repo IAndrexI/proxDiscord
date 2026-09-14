@@ -5,7 +5,7 @@
   "proxmox_node": "pve",
   "proxmox_token_id": "root@pam!discord-rpc",
   "proxmox_token_secret": "YOUR_API_TOKEN_SECRET_HERE",
-  "update_interval_seconds": 15,
+  "update_interval_seconds": 6,
   "large_image": "protutech",
   "show_party_badge": true,
   "enable_kryptex_screen": true,

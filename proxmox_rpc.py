@@ -453,11 +453,13 @@ def detect_game_activity(cfg):
     return None
 
 
-# Official Kryptex Brand Logo CDN
+# Official Brand Logo CDNs
+DEFAULT_PROXMOX_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png"
 DEFAULT_KRYPTEX_ICON = "https://www.kryptex.com/static/v2/favicons/android-chrome-512x512.aba2291aca42.png"
 
 # Built-in official Discord CDN application icons for instant zero-latency image matching
 BUILTIN_GAME_ICONS = {
+    "proxmox": DEFAULT_PROXMOX_ICON,
     "kryptex": DEFAULT_KRYPTEX_ICON,
     "roblox": "https://cdn.discordapp.com/app-icons/363445589247131668/f2b60e350a2097289b3b0b877495e55f.png",
     "minecraft": "https://cdn.discordapp.com/app-icons/1402418491272986635/166fbad351ecdd02d11a3b464748f66b.png",
@@ -593,7 +595,7 @@ def main():
 
     cfg = load_config()
     client_id = cfg.get("discord_client_id", "1548928413337788486")
-    interval = cfg.get("update_interval_seconds", 15)
+    interval = cfg.get("update_interval_seconds", 6)
 
     print("=" * 60, flush=True)
     print("  Proxmox VE Discord Rich Presence (RPC) - Rotating Mode", flush=True)
@@ -716,10 +718,11 @@ def main():
             small_txt = None
 
             if current_screen["name"] == "Proxmox Overview":
-                large_img = default_large
-                large_txt = f"Protutech Cloud | {stats['running_guests']}/{stats['total_guests']} Services Online"
-                small_img = None
-                small_txt = None
+                pve_img = cfg.get("proxmox_image") or game_images.get("proxmox") or DEFAULT_PROXMOX_ICON
+                large_img = pve_img
+                large_txt = f"Proxmox VE | {stats['running_guests']}/{stats['total_guests']} Services Online"
+                small_img = default_large
+                small_txt = "Protutech Cloud"
 
             elif current_screen["name"] in ("Kryptex Miner", "Crypto Miner"):
                 k_custom = cfg.get("kryptex_image") or game_images.get("kryptex") or game_images.get("mining")
