@@ -1132,11 +1132,11 @@ def main():
                 if active_game:
                     game = active_game["name"]
                     elapsed = format_uptime(now - _game_tracker["start_time"])
-                    details = f"🎮 {game}: Opened"
-                    state = f"Status: Opened on PC | ⏱️ {elapsed}"
+                    details = f"🎮 {game}"
+                    state = f"⏱️ Time Opened: {elapsed}"
                 else:
                     details = "🎮 Gaming: Standby"
-                    state = "No game currently running"
+                    state = "No game currently open"
 
                 screens.append({
                     "name": "Game Activity",
@@ -1301,14 +1301,14 @@ def main():
                 small_img = default_large
                 small_txt = "Protutech Cloud"
 
+            game_start = int(_game_tracker["start_time"]) if (current_screen["name"] == "Game Activity" and _game_tracker.get("start_time")) else boot_time
             activity_kwargs = {
                 "details": current_screen["details"],
                 "state": current_screen["state"],
                 "large_image": large_img,
-                "large_text": large_txt
+                "large_text": large_txt,
+                "start": game_start
             }
-            if current_screen["name"] != "Game Activity":
-                activity_kwargs["start"] = boot_time
             if small_img:
                 activity_kwargs["small_image"] = small_img
             if small_txt:
