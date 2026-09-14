@@ -453,8 +453,12 @@ def detect_game_activity(cfg):
     return None
 
 
+# Official Kryptex Brand Logo CDN
+DEFAULT_KRYPTEX_ICON = "https://www.kryptex.com/static/v2/favicons/android-chrome-512x512.aba2291aca42.png"
+
 # Built-in official Discord CDN application icons for instant zero-latency image matching
 BUILTIN_GAME_ICONS = {
+    "kryptex": DEFAULT_KRYPTEX_ICON,
     "roblox": "https://cdn.discordapp.com/app-icons/363445589247131668/f2b60e350a2097289b3b0b877495e55f.png",
     "minecraft": "https://cdn.discordapp.com/app-icons/1402418491272986635/166fbad351ecdd02d11a3b464748f66b.png",
     "valorant": "https://cdn.discordapp.com/app-icons/700136079562375258/11f81959f4fdd76ca6c39c59eac256c1.png",
@@ -718,17 +722,15 @@ def main():
                 small_txt = None
 
             elif current_screen["name"] in ("Kryptex Miner", "Crypto Miner"):
-                k_img = cfg.get("kryptex_image") or game_images.get("kryptex") or game_images.get("mining")
-                if k_img:
-                    large_img = k_img
-                    large_txt = "Kryptex Mining | Protutech Cloud"
-                    small_img = default_large
-                    small_txt = "Protutech Cloud"
+                k_custom = cfg.get("kryptex_image") or game_images.get("kryptex") or game_images.get("mining")
+                if k_custom and (k_custom.startswith("http://") or k_custom.startswith("https://") or k_custom != "kryptex"):
+                    large_img = k_custom
                 else:
-                    large_img = default_large
-                    large_txt = "Protutech Cloud | Crypto Mining Rig"
-                    small_img = None
-                    small_txt = None
+                    large_img = DEFAULT_KRYPTEX_ICON
+
+                large_txt = "Kryptex Mining Rig | Protutech Cloud"
+                small_img = default_large
+                small_txt = "Protutech Cloud"
 
             elif current_screen["name"] == "Game Activity":
                 game_info = current_screen.get("game_info")
