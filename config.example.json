@@ -1,0 +1,13 @@
+{
+  "discord_client_id": "YOUR_DISCORD_APPLICATION_ID",
+  "server_label": "Homelabs",
+  "proxmox_host": "https://192.168.1.100:8006",
+  "proxmox_node": "pve",
+  "proxmox_token_id": "root@pam!discord-rpc",
+  "proxmox_token_secret": "YOUR_API_TOKEN_SECRET_HERE",
+  "update_interval_seconds": 15,
+  "large_image": "protutech",
+  "show_party_badge": true,
+  "enable_minecraft_screen": false,
+  "minecraft_server_address": "play.yourdomain.com:25565"
+}

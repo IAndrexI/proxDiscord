@@ -1,0 +1,17 @@
+# Secrets and Environment
+config.json
+*.env
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
+
+# OS metadata
+Thumbs.db
+.DS_Store
