@@ -37,7 +37,7 @@ Fill in your Proxmox connection details, Discord Application ID, and optional ga
 ```json
 {
   "discord_client_id": "YOUR_DISCORD_APPLICATION_ID",
-  "server_label": "Homelabs",
+  "server_label": "Protutech",
   "proxmox_host": "https://192.168.0.2:8006",
   "proxmox_node": "Protutech",
   "proxmox_token_id": "root@pam!discord-rpc",

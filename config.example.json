@@ -1,6 +1,6 @@
 {
   "discord_client_id": "YOUR_DISCORD_APPLICATION_ID",
-  "server_label": "Homelabs",
+  "server_label": "Protutech",
   "proxmox_host": "https://192.168.1.100:8006",
   "proxmox_node": "pve",
   "proxmox_token_id": "root@pam!discord-rpc",

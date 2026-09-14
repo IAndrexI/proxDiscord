@@ -874,15 +874,17 @@ def main():
         try:
             is_screen_one = (screen_index % last_screen_count == 0)
             stats = get_cached_proxmox_stats(cfg, force=is_screen_one)
-            label = cfg.get("server_label", "Homelabs")
+            label = cfg.get("server_label", "Protutech")
 
             # Build list of active screens
             screens = []
 
             # Screen 1: Proxmox Overview (Performance, Workloads & Storage)
+            node_name = stats["node"]
+            node_tag = f"{label}: {node_name}" if label.lower() != node_name.lower() else label
             screens.append({
                 "name": "Proxmox Overview",
-                "details": f"🟢 {label}: {stats['node']} (Up: {stats['uptime']}) | 🖥️ {stats['running_vms']} VMs | 📦 {stats['running_lxcs']} LXCs",
+                "details": f"🟢 {node_tag} (Up: {stats['uptime']}) | 🖥️ {stats['running_vms']} VMs | 📦 {stats['running_lxcs']} LXCs",
                 "state": f"💻 CPU: {stats['cpu_pct']:.1f}% | 🧠 RAM: {stats['mem_pct']:.0f}% | 💾 Storage: {stats['storage_used_gb']:.0f}G/{stats['storage_total_tb']:.1f}TB"
             })
 
@@ -1071,7 +1073,7 @@ def main():
             print(f"[{time.strftime('%X')}] [WARN] Could not reach Proxmox: {e}", flush=True)
             try:
                 rpc.update(
-                    details=f"⚠️ {cfg.get('server_label', 'Homelabs')}: Unreachable",
+                    details=f"⚠️ {cfg.get('server_label', 'Protutech')}: Unreachable",
                     state="Retrying Proxmox VE connection...",
                     large_image=cfg.get("large_image", "protutech"),
                     large_text="Connection error",
