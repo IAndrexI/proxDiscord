@@ -7,6 +7,7 @@ Supports multi-screen rotation, guest party badges, and storage monitoring.
 
 import json
 import os
+import sqlite3
 import sys
 import time
 import urllib3
@@ -148,6 +149,102 @@ def fetch_proxmox_stats(cfg):
     }
 
 
+def fetch_kryptex_stats(cfg):
+    """
+    Reads local Kryptex statistics (mining status, hashrate, hardware temps, and balance)
+    directly from the local Kryptex database in read-only mode without blocking or locking.
+    """
+    db_path = cfg.get("kryptex_db_path")
+    if not db_path:
+        db_path = os.path.expandvars(r"%APPDATA%\Kryptex\kryptex.db")
+
+    if not os.path.exists(db_path):
+        return None
+
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        # 1. Account balance
+        cur.execute("SELECT total, withdrawable FROM balance LIMIT 1;")
+        bal = cur.fetchone()
+        balance_usd = bal["total"] if bal else None
+
+        # 2. Latest readings
+        cur.execute("SELECT id, timestamp FROM reading ORDER BY id DESC LIMIT 1;")
+        latest = cur.fetchone()
+        if not latest:
+            conn.close()
+            return {"mining": False, "balance": balance_usd, "gpu": None, "cpu": None}
+
+        reading_id = latest["id"]
+        ts = latest["timestamp"] / 1000.0
+        is_active = (time.time() - ts) < 60
+
+        cur.execute("""
+            SELECT d.id, d.name, d.type_id, dr.core_temperature, dr.power_usage, dr.fan_speed, dr.core_clock
+            FROM device_reading dr
+            JOIN device d ON dr.device_id = d.id
+            WHERE dr.reading_id = ?
+        """, (reading_id,))
+        dev_readings = {r["id"]: dict(r) for r in cur.fetchall()}
+
+        cur.execute("""
+            SELECT pdr.coin_algorithm_id, pdr.hashrate, c.name as coin, a.name as algo, pd.device_id
+            FROM process_device_reading pdr
+            JOIN coin_algorithm ca ON pdr.coin_algorithm_id = ca.id
+            JOIN coin c ON ca.coin_id = c.id
+            JOIN algorithm a ON ca.algorithm_id = a.id
+            JOIN process_device pd ON pdr.process_device_id = pd.id
+            WHERE pdr.reading_id = ?
+        """, (reading_id,))
+
+        gpu_stat = None
+        cpu_stat = None
+        any_hashrate = False
+
+        def fmt_hr(hr):
+            if hr >= 1e12:
+                return f"{hr / 1e12:.1f} TH/s"
+            elif hr >= 1e9:
+                return f"{hr / 1e9:.1f} GH/s"
+            elif hr >= 1e6:
+                return f"{hr / 1e6:.1f} MH/s"
+            elif hr >= 1e3:
+                return f"{hr / 1e3:.1f} kH/s"
+            return f"{hr:.0f} H/s"
+
+        for p in cur.fetchall():
+            dev_id = p["device_id"]
+            if dev_id in dev_readings:
+                dr = dev_readings[dev_id]
+                hr = p["hashrate"] or 0
+                if hr > 0:
+                    any_hashrate = True
+                info = {
+                    "name": dr["name"],
+                    "temp": dr["core_temperature"],
+                    "power": dr["power_usage"],
+                    "coin": p["coin"].upper(),
+                    "hashrate": fmt_hr(hr)
+                }
+                if dr["type_id"] == 2:
+                    gpu_stat = info
+                elif dr["type_id"] == 1:
+                    cpu_stat = info
+
+        conn.close()
+        return {
+            "mining": is_active and any_hashrate,
+            "balance": balance_usd,
+            "gpu": gpu_stat,
+            "cpu": cpu_stat
+        }
+    except Exception:
+        return None
+
+
 def main():
     cfg = load_config()
     client_id = cfg.get("discord_client_id", "1548928413337788486")
@@ -159,6 +256,7 @@ def main():
     print(f"  Node:      {cfg.get('proxmox_node')}", flush=True)
     print(f"  Target:    {cfg.get('proxmox_host')}", flush=True)
     print(f"  Badges:    {'Enabled' if cfg.get('show_party_badge', True) else 'Disabled'}", flush=True)
+    print(f"  Kryptex:   {'Enabled' if cfg.get('enable_kryptex_screen', True) else 'Disabled'}", flush=True)
     print("=" * 60, flush=True)
 
     rpc = None
@@ -203,7 +301,30 @@ def main():
                 "state": f"💾 Storage: {stats['storage_used_gb']:.0f}G / {stats['storage_total_tb']:.1f}TB ({stats['storage_pool']})"
             })
 
-            # Screen 3: Optional Minecraft Screen (when enabled)
+            # Screen 3: Kryptex Mining Status (when enabled)
+            if cfg.get("enable_kryptex_screen", True):
+                k_stats = fetch_kryptex_stats(cfg)
+                if k_stats:
+                    bal_str = f"💰 ${k_stats['balance']:.2f}" if k_stats.get("balance") is not None else ""
+                    if k_stats["mining"]:
+                        gpu = k_stats.get("gpu")
+                        cpu = k_stats.get("cpu")
+                        temp_str = f" ({gpu['temp']}°C)" if gpu and gpu.get("temp") else ""
+                        gpu_part = f"🎮 {gpu['name'].replace('NVIDIA GeForce ', '')}: {gpu['hashrate']}{temp_str}" if gpu else ""
+                        cpu_part = f"💻 CPU: {cpu['hashrate']}" if cpu else ""
+                        details = f"⛏️ Kryptex: Mining | {bal_str}".strip(" |")
+                        state = " | ".join([p for p in [gpu_part, cpu_part] if p]) or "Mining active"
+                    else:
+                        details = f"⛏️ Kryptex: Idle | {bal_str}".strip(" |")
+                        state = "Miner paused / standby"
+
+                    screens.append({
+                        "name": "Kryptex Miner",
+                        "details": details,
+                        "state": state
+                    })
+
+            # Screen 4: Optional Minecraft Screen (when enabled)
             if cfg.get("enable_minecraft_screen", False):
                 screens.append({
                     "name": "Minecraft",
@@ -216,7 +337,10 @@ def main():
             screen_index = (screen_index + 1) % len(screens)
 
             large_img = cfg.get("large_image", "protutech")
-            hover_text = f"Protutech Cloud | {stats['running_guests']}/{stats['total_guests']} Services Online"
+            if current_screen["name"] == "Kryptex Miner":
+                hover_text = "Protutech Cloud | Kryptex Mining Rig"
+            else:
+                hover_text = f"Protutech Cloud | {stats['running_guests']}/{stats['total_guests']} Services Online"
 
             activity_kwargs = {
                 "details": current_screen["details"],
@@ -227,7 +351,7 @@ def main():
             }
 
             # Optional Party Badge (shows e.g. "(16 of 16)" guests)
-            if cfg.get("show_party_badge", True) and stats["total_guests"] > 0:
+            if cfg.get("show_party_badge", True) and stats["total_guests"] > 0 and current_screen["name"] != "Kryptex Miner":
                 activity_kwargs["party_size"] = [stats["running_guests"], stats["total_guests"]]
                 activity_kwargs["party_id"] = "protutech_guests"
 

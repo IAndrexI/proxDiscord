@@ -8,6 +8,7 @@
   "update_interval_seconds": 15,
   "large_image": "protutech",
   "show_party_badge": true,
+  "enable_kryptex_screen": true,
   "enable_minecraft_screen": false,
   "minecraft_server_address": "play.yourdomain.com:25565"
 }

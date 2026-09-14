@@ -7,8 +7,9 @@ Display live Proxmox VE server stats directly on your Discord profile using Disc
 </p>
 
 ## Features
-- **Auto-Rotating Screens**: Cycles between CPU/RAM/Uptime and Storage/VMs/LXCs every 15 seconds.
-- **Active Guests Badge**: Shows a live `(16 of 16)` active guest count.
+- **Auto-Rotating Screens**: Cycles between Proxmox Performance (CPU/RAM/Uptime), Workloads & Storage, and live Kryptex Mining stats every 15 seconds.
+- **Kryptex Miner Integration**: Displays live GPU (RTX 5080 hashrate/temp), CPU mining hashrate, and current balance ($ USD).
+- **Active Guests Badge**: Shows a live `(16 of 16)` active Proxmox guest count.
 - **Background Mode & Auto-Start**: Runs silently and starts with Windows on boot.
 - **Self-Healing**: Automatically reconnects if Discord or network restarts.
 
