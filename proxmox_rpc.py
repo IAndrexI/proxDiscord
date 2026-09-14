@@ -278,6 +278,174 @@ def fetch_kryptex_stats(cfg):
         return None
 
 
+KNOWN_GAMES = {
+    "robloxplayerbeta.exe": "Roblox",
+    "robloxplayer.exe": "Roblox",
+    "javaw.exe": "Minecraft",
+    "minecraft.exe": "Minecraft",
+    "minecraftbedrock.exe": "Minecraft (Bedrock)",
+    "valorant.exe": "Valorant",
+    "valorant-win64-shipping.exe": "Valorant",
+    "league of legends.exe": "League of Legends",
+    "leagueclient.exe": "League of Legends",
+    "fortniteclient-win64-shipping.exe": "Fortnite",
+    "genshinimpact.exe": "Genshin Impact",
+    "honkaistarrail.exe": "Honkai: Star Rail",
+    "zenlesszonezero.exe": "Zenless Zone Zero",
+    "overwatch.exe": "Overwatch 2",
+    "r5apex.exe": "Apex Legends",
+    "gta5.exe": "Grand Theft Auto V",
+    "gtav.exe": "Grand Theft Auto V",
+    "osu!.exe": "osu!",
+    "osu.exe": "osu!",
+    "rocketleague.exe": "Rocket League",
+    "destiny2.exe": "Destiny 2",
+    "cyberpunk2077.exe": "Cyberpunk 2077",
+    "eldenring.exe": "Elden Ring",
+    "helldivers2.exe": "Helldivers 2",
+    "palworld-win64-shipping.exe": "Palworld",
+    "terraria.exe": "Terraria",
+    "tmodloader.exe": "tModLoader",
+    "escapefromtarkov.exe": "Escape From Tarkov",
+    "warframe.x64.exe": "Warframe",
+    "rainbowsix.exe": "Rainbow Six Siege",
+    "rustclient.exe": "Rust",
+    "deadbydaylight-win64-shipping.exe": "Dead by Daylight",
+    "wow.exe": "World of Warcraft",
+    "wowclassic.exe": "World of Warcraft Classic",
+    "diablo iv.exe": "Diablo IV",
+    "starcraft.exe": "StarCraft",
+    "sc2_x64.exe": "StarCraft II",
+    "heroes of the storm_x64.exe": "Heroes of the Storm",
+    "fallout4.exe": "Fallout 4",
+    "skyrimse.exe": "Skyrim",
+    "baldursgate3.exe": "Baldur's Gate 3",
+    "bg3_dx11.exe": "Baldur's Gate 3",
+    "bg3.exe": "Baldur's Gate 3",
+    "subnautica.exe": "Subnautica",
+    "sekiro.exe": "Sekiro: Shadows Die Twice",
+    "darksoulsiii.exe": "Dark Souls III",
+    "armoredcore6.exe": "Armored Core VI",
+    "monsterhunterrise.exe": "Monster Hunter Rise",
+    "monsterhunterworld.exe": "Monster Hunter: World",
+    "blackmythwukong.exe": "Black Myth: Wukong",
+    "b1-win64-shipping.exe": "Black Myth: Wukong",
+    "among us.exe": "Among Us",
+    "lethal company.exe": "Lethal Company",
+    "marvelrivals.exe": "Marvel Rivals",
+    "marvelrivals-win64-shipping.exe": "Marvel Rivals",
+}
+
+_steam_app_cache = {}
+_game_tracker = {"current": None, "start_time": None}
+
+
+def detect_game_activity(cfg):
+    """
+    Detects the active game on the PC via Steam RunningAppID and running processes snapshot.
+    """
+    # 1. Check Steam RunningAppID
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+            running_appid, _ = winreg.QueryValueEx(key, "RunningAppID")
+            steam_path, _ = winreg.QueryValueEx(key, "SteamPath")
+
+        if running_appid and running_appid > 0:
+            if running_appid in _steam_app_cache:
+                return _steam_app_cache[running_appid]
+
+            search_dirs = [os.path.join(steam_path, "steamapps")]
+            vdf_path = os.path.join(steam_path, "steamapps", "libraryfolders.vdf")
+            if os.path.exists(vdf_path):
+                try:
+                    import re
+                    with open(vdf_path, "r", encoding="utf-8", errors="ignore") as f:
+                        for match in re.finditer(r'"path"\s+"([^"]+)"', f.read()):
+                            lib_dir = os.path.join(match.group(1).replace("\\\\", "\\"), "steamapps")
+                            if os.path.exists(lib_dir) and lib_dir not in search_dirs:
+                                search_dirs.append(lib_dir)
+                except Exception:
+                    pass
+
+            for sdir in search_dirs:
+                mfile = os.path.join(sdir, f"appmanifest_{running_appid}.acf")
+                if os.path.exists(mfile):
+                    try:
+                        import re
+                        with open(mfile, "r", encoding="utf-8", errors="ignore") as f:
+                            m = re.search(r'"name"\s+"([^"]+)"', f.read())
+                            if m:
+                                name = m.group(1)
+                                _steam_app_cache[running_appid] = name
+                                return name
+                    except Exception:
+                        pass
+
+            try:
+                resp = requests.get(f"https://store.steampowered.com/api/appdetails?appids={running_appid}", timeout=2.0)
+                if resp.status_code == 200:
+                    data = resp.json().get(str(running_appid), {})
+                    if data.get("success") and "data" in data:
+                        name = data["data"].get("name")
+                        if name:
+                            _steam_app_cache[running_appid] = name
+                            return name
+            except Exception:
+                pass
+
+            return f"Steam Game ({running_appid})"
+    except Exception:
+        pass
+
+    # 2. Check running processes snapshot
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.windll.kernel32
+
+        class PROCESSENTRY32(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.POINTER(wintypes.ULONG)),
+                ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD),
+                ("szExeFile", ctypes.c_char * 260),
+            ]
+
+        hSnap = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
+        pe = PROCESSENTRY32()
+        pe.dwSize = ctypes.sizeof(PROCESSENTRY32)
+        procs = set()
+        if kernel32.Process32First(hSnap, ctypes.byref(pe)):
+            while True:
+                procs.add(pe.szExeFile.decode("latin1", errors="ignore").lower())
+                if not kernel32.Process32Next(hSnap, ctypes.byref(pe)):
+                    break
+        kernel32.CloseHandle(hSnap)
+
+        # Check custom games from config
+        custom_games = cfg.get("custom_games", {})
+        for exe_name, display_name in custom_games.items():
+            if exe_name.lower() in procs:
+                return display_name
+
+        # Check known popular games
+        for exe_name, display_name in KNOWN_GAMES.items():
+            if exe_name in procs:
+                return display_name
+    except Exception:
+        pass
+
+    return None
+
+
 def main():
     cfg = load_config()
     client_id = cfg.get("discord_client_id", "1548928413337788486")
@@ -290,6 +458,7 @@ def main():
     print(f"  Target:    {cfg.get('proxmox_host')}", flush=True)
     print(f"  Badges:    {'Enabled' if cfg.get('show_party_badge', True) else 'Disabled'}", flush=True)
     print(f"  Kryptex:   {'Enabled' if cfg.get('enable_kryptex_screen', True) else 'Disabled'}", flush=True)
+    print(f"  Gaming:    {'Enabled' if cfg.get('enable_game_activity', True) else 'Disabled'}", flush=True)
     print("=" * 60, flush=True)
 
     rpc = None
@@ -365,7 +534,29 @@ def main():
                         "state": state
                     })
 
-            # Screen 4: Optional Minecraft Screen (when enabled)
+            # Screen 4: Current Game Activity (when enabled)
+            if cfg.get("enable_game_activity", True):
+                game = detect_game_activity(cfg)
+                if game:
+                    details = f"🎮 Playing: {game}"
+                    if _game_tracker["current"] != game:
+                        _game_tracker["current"] = game
+                        _game_tracker["start_time"] = time.time()
+                    elapsed = format_uptime(time.time() - _game_tracker["start_time"])
+                    state = f"⏱️ Session: {elapsed} | Active on PC"
+                else:
+                    _game_tracker["current"] = None
+                    _game_tracker["start_time"] = None
+                    details = "🎮 Gaming: Standby"
+                    state = "No game currently running"
+
+                screens.append({
+                    "name": "Game Activity",
+                    "details": details,
+                    "state": state
+                })
+
+            # Screen 5: Optional Minecraft Screen (when enabled)
             if cfg.get("enable_minecraft_screen", False):
                 screens.append({
                     "name": "Minecraft",
@@ -380,6 +571,8 @@ def main():
             large_img = cfg.get("large_image", "protutech")
             if current_screen["name"] in ("Kryptex Miner", "Crypto Miner"):
                 hover_text = "Protutech Cloud | Crypto Mining Rig"
+            elif current_screen["name"] == "Game Activity":
+                hover_text = "Gaming Activity | Protutech Cloud"
             else:
                 hover_text = f"Protutech Cloud | {stats['running_guests']}/{stats['total_guests']} Services Online"
 
@@ -392,7 +585,7 @@ def main():
             }
 
             # Optional Party Badge (shows e.g. "(16 of 16)" guests)
-            if cfg.get("show_party_badge", True) and stats["total_guests"] > 0 and current_screen["name"] != "Kryptex Miner":
+            if cfg.get("show_party_badge", True) and stats["total_guests"] > 0 and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity"):
                 activity_kwargs["party_size"] = [stats["running_guests"], stats["total_guests"]]
                 activity_kwargs["party_id"] = "protutech_guests"
 
