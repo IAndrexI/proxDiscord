@@ -20,10 +20,11 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # If running windowless via pythonw.exe, sys.stdout and sys.stderr are None.
 # Redirect them to a local log file so print statements work seamlessly.
 LOG_DIR = os.path.dirname(os.path.abspath(__file__))
-if sys.stdout is None:
+if "pythonw" in sys.executable.lower() or sys.stdout is None:
     try:
-        sys.stdout = open(os.path.join(LOG_DIR, "proxmox_rpc.log"), "a", encoding="utf-8", buffering=1)
-        sys.stderr = sys.stdout
+        log_file = open(os.path.join(LOG_DIR, "proxmox_rpc.log"), "a", encoding="utf-8", buffering=1)
+        sys.stdout = log_file
+        sys.stderr = log_file
     except Exception:
         pass
 elif sys.platform == "win32":
@@ -32,16 +33,6 @@ elif sys.platform == "win32":
         sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True, write_through=True)
     except Exception:
         pass
-
-# Prevent multiple instances from running concurrently
-_app_mutex = None
-if sys.platform == "win32":
-    import ctypes
-    kernel32 = ctypes.windll.kernel32
-    _app_mutex = kernel32.CreateMutexW(None, False, "Global\\ProxmoxDiscordRPC_Instance")
-    if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-        print("[INFO] Proxmox Discord RPC is already running in the background. Exiting.", flush=True)
-        sys.exit(0)
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
@@ -279,61 +270,61 @@ def fetch_kryptex_stats(cfg):
 
 
 KNOWN_GAMES = {
-    "robloxplayerbeta.exe": "Roblox",
-    "robloxplayer.exe": "Roblox",
-    "javaw.exe": "Minecraft",
-    "minecraft.exe": "Minecraft",
-    "minecraftbedrock.exe": "Minecraft (Bedrock)",
-    "valorant.exe": "Valorant",
-    "valorant-win64-shipping.exe": "Valorant",
-    "league of legends.exe": "League of Legends",
-    "leagueclient.exe": "League of Legends",
-    "fortniteclient-win64-shipping.exe": "Fortnite",
-    "genshinimpact.exe": "Genshin Impact",
-    "honkaistarrail.exe": "Honkai: Star Rail",
-    "zenlesszonezero.exe": "Zenless Zone Zero",
-    "overwatch.exe": "Overwatch 2",
-    "r5apex.exe": "Apex Legends",
-    "gta5.exe": "Grand Theft Auto V",
-    "gtav.exe": "Grand Theft Auto V",
-    "osu!.exe": "osu!",
-    "osu.exe": "osu!",
-    "rocketleague.exe": "Rocket League",
-    "destiny2.exe": "Destiny 2",
-    "cyberpunk2077.exe": "Cyberpunk 2077",
-    "eldenring.exe": "Elden Ring",
-    "helldivers2.exe": "Helldivers 2",
-    "palworld-win64-shipping.exe": "Palworld",
-    "terraria.exe": "Terraria",
-    "tmodloader.exe": "tModLoader",
-    "escapefromtarkov.exe": "Escape From Tarkov",
-    "warframe.x64.exe": "Warframe",
-    "rainbowsix.exe": "Rainbow Six Siege",
-    "rustclient.exe": "Rust",
-    "deadbydaylight-win64-shipping.exe": "Dead by Daylight",
-    "wow.exe": "World of Warcraft",
-    "wowclassic.exe": "World of Warcraft Classic",
-    "diablo iv.exe": "Diablo IV",
-    "starcraft.exe": "StarCraft",
-    "sc2_x64.exe": "StarCraft II",
-    "heroes of the storm_x64.exe": "Heroes of the Storm",
-    "fallout4.exe": "Fallout 4",
-    "skyrimse.exe": "Skyrim",
-    "baldursgate3.exe": "Baldur's Gate 3",
-    "bg3_dx11.exe": "Baldur's Gate 3",
-    "bg3.exe": "Baldur's Gate 3",
-    "subnautica.exe": "Subnautica",
-    "sekiro.exe": "Sekiro: Shadows Die Twice",
-    "darksoulsiii.exe": "Dark Souls III",
-    "armoredcore6.exe": "Armored Core VI",
-    "monsterhunterrise.exe": "Monster Hunter Rise",
-    "monsterhunterworld.exe": "Monster Hunter: World",
-    "blackmythwukong.exe": "Black Myth: Wukong",
-    "b1-win64-shipping.exe": "Black Myth: Wukong",
-    "among us.exe": "Among Us",
-    "lethal company.exe": "Lethal Company",
-    "marvelrivals.exe": "Marvel Rivals",
-    "marvelrivals-win64-shipping.exe": "Marvel Rivals",
+    "robloxplayerbeta.exe": ("Roblox", "roblox"),
+    "robloxplayer.exe": ("Roblox", "roblox"),
+    "javaw.exe": ("Minecraft", "minecraft"),
+    "minecraft.exe": ("Minecraft", "minecraft"),
+    "minecraftbedrock.exe": ("Minecraft (Bedrock)", "minecraft"),
+    "valorant.exe": ("Valorant", "valorant"),
+    "valorant-win64-shipping.exe": ("Valorant", "valorant"),
+    "league of legends.exe": ("League of Legends", "league_of_legends"),
+    "leagueclient.exe": ("League of Legends", "league_of_legends"),
+    "fortniteclient-win64-shipping.exe": ("Fortnite", "fortnite"),
+    "genshinimpact.exe": ("Genshin Impact", "genshin_impact"),
+    "honkaistarrail.exe": ("Honkai: Star Rail", "honkai_star_rail"),
+    "zenlesszonezero.exe": ("Zenless Zone Zero", "zenless_zone_zero"),
+    "overwatch.exe": ("Overwatch 2", "overwatch"),
+    "r5apex.exe": ("Apex Legends", "apex_legends"),
+    "gta5.exe": ("Grand Theft Auto V", "gta5"),
+    "gtav.exe": ("Grand Theft Auto V", "gta5"),
+    "osu!.exe": ("osu!", "osu"),
+    "osu.exe": ("osu!", "osu"),
+    "rocketleague.exe": ("Rocket League", "rocket_league"),
+    "destiny2.exe": ("Destiny 2", "destiny2"),
+    "cyberpunk2077.exe": ("Cyberpunk 2077", "cyberpunk2077"),
+    "eldenring.exe": ("Elden Ring", "eldenring"),
+    "helldivers2.exe": ("Helldivers 2", "helldivers2"),
+    "palworld-win64-shipping.exe": ("Palworld", "palworld"),
+    "terraria.exe": ("Terraria", "terraria"),
+    "tmodloader.exe": ("tModLoader", "tmodloader"),
+    "escapefromtarkov.exe": ("Escape From Tarkov", "tarkov"),
+    "warframe.x64.exe": ("Warframe", "warframe"),
+    "rainbowsix.exe": ("Rainbow Six Siege", "rainbowsix"),
+    "rustclient.exe": ("Rust", "rust"),
+    "deadbydaylight-win64-shipping.exe": ("Dead by Daylight", "deadbydaylight"),
+    "wow.exe": ("World of Warcraft", "wow"),
+    "wowclassic.exe": ("World of Warcraft Classic", "wowclassic"),
+    "diablo iv.exe": ("Diablo IV", "diablo4"),
+    "starcraft.exe": ("StarCraft", "starcraft"),
+    "sc2_x64.exe": ("StarCraft II", "sc2"),
+    "heroes of the storm_x64.exe": ("Heroes of the Storm", "hots"),
+    "fallout4.exe": ("Fallout 4", "fallout4"),
+    "skyrimse.exe": ("Skyrim", "skyrim"),
+    "baldursgate3.exe": ("Baldur's Gate 3", "bg3"),
+    "bg3_dx11.exe": ("Baldur's Gate 3", "bg3"),
+    "bg3.exe": ("Baldur's Gate 3", "bg3"),
+    "subnautica.exe": ("Subnautica", "subnautica"),
+    "sekiro.exe": ("Sekiro: Shadows Die Twice", "sekiro"),
+    "darksoulsiii.exe": ("Dark Souls III", "darksouls3"),
+    "armoredcore6.exe": ("Armored Core VI", "armoredcore6"),
+    "monsterhunterrise.exe": ("Monster Hunter Rise", "mhrise"),
+    "monsterhunterworld.exe": ("Monster Hunter: World", "mhworld"),
+    "blackmythwukong.exe": ("Black Myth: Wukong", "blackmythwukong"),
+    "b1-win64-shipping.exe": ("Black Myth: Wukong", "blackmythwukong"),
+    "among us.exe": ("Among Us", "amongus"),
+    "lethal company.exe": ("Lethal Company", "lethalcompany"),
+    "marvelrivals.exe": ("Marvel Rivals", "marvelrivals"),
+    "marvelrivals-win64-shipping.exe": ("Marvel Rivals", "marvelrivals"),
 }
 
 _steam_app_cache = {}
@@ -343,7 +334,10 @@ _game_tracker = {"current": None, "start_time": None}
 def detect_game_activity(cfg):
     """
     Detects the active game on the PC via Steam RunningAppID and running processes snapshot.
+    Returns a dict with 'name', 'slug', 'steam_appid' or None.
     """
+    import re
+
     # 1. Check Steam RunningAppID
     try:
         import winreg
@@ -355,11 +349,11 @@ def detect_game_activity(cfg):
             if running_appid in _steam_app_cache:
                 return _steam_app_cache[running_appid]
 
+            name = None
             search_dirs = [os.path.join(steam_path, "steamapps")]
             vdf_path = os.path.join(steam_path, "steamapps", "libraryfolders.vdf")
             if os.path.exists(vdf_path):
                 try:
-                    import re
                     with open(vdf_path, "r", encoding="utf-8", errors="ignore") as f:
                         for match in re.finditer(r'"path"\s+"([^"]+)"', f.read()):
                             lib_dir = os.path.join(match.group(1).replace("\\\\", "\\"), "steamapps")
@@ -372,29 +366,31 @@ def detect_game_activity(cfg):
                 mfile = os.path.join(sdir, f"appmanifest_{running_appid}.acf")
                 if os.path.exists(mfile):
                     try:
-                        import re
                         with open(mfile, "r", encoding="utf-8", errors="ignore") as f:
                             m = re.search(r'"name"\s+"([^"]+)"', f.read())
                             if m:
                                 name = m.group(1)
-                                _steam_app_cache[running_appid] = name
-                                return name
+                                break
                     except Exception:
                         pass
 
-            try:
-                resp = requests.get(f"https://store.steampowered.com/api/appdetails?appids={running_appid}", timeout=2.0)
-                if resp.status_code == 200:
-                    data = resp.json().get(str(running_appid), {})
-                    if data.get("success") and "data" in data:
-                        name = data["data"].get("name")
-                        if name:
-                            _steam_app_cache[running_appid] = name
-                            return name
-            except Exception:
-                pass
+            if not name:
+                try:
+                    resp = requests.get(f"https://store.steampowered.com/api/appdetails?appids={running_appid}", timeout=2.0)
+                    if resp.status_code == 200:
+                        data = resp.json().get(str(running_appid), {})
+                        if data.get("success") and "data" in data:
+                            name = data["data"].get("name")
+                except Exception:
+                    pass
 
-            return f"Steam Game ({running_appid})"
+            if not name:
+                name = f"Steam Game ({running_appid})"
+
+            slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
+            res = {"name": name, "slug": slug, "steam_appid": running_appid}
+            _steam_app_cache[running_appid] = res
+            return res
     except Exception:
         pass
 
@@ -432,21 +428,43 @@ def detect_game_activity(cfg):
 
         # Check custom games from config
         custom_games = cfg.get("custom_games", {})
-        for exe_name, display_name in custom_games.items():
+        for exe_name, c_info in custom_games.items():
             if exe_name.lower() in procs:
-                return display_name
+                if isinstance(c_info, dict):
+                    name = c_info.get("name", exe_name)
+                    slug = c_info.get("slug") or re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
+                    return {"name": name, "slug": slug, "steam_appid": c_info.get("steam_appid")}
+                name = str(c_info)
+                slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
+                return {"name": name, "slug": slug, "steam_appid": None}
 
         # Check known popular games
-        for exe_name, display_name in KNOWN_GAMES.items():
+        for exe_name, g_info in KNOWN_GAMES.items():
             if exe_name in procs:
-                return display_name
+                if isinstance(g_info, tuple):
+                    name, slug = g_info
+                else:
+                    name = g_info
+                    slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
+                return {"name": name, "slug": slug, "steam_appid": None}
     except Exception:
         pass
 
     return None
 
 
+_app_mutex = None
+
 def main():
+    global _app_mutex
+    if sys.platform == "win32":
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        _app_mutex = kernel32.CreateMutexW(None, False, "Global\\ProxmoxDiscordRPC_Instance")
+        if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            print("[INFO] Proxmox Discord RPC is already running in the background. Exiting.", flush=True)
+            sys.exit(0)
+
     cfg = load_config()
     client_id = cfg.get("discord_client_id", "1548928413337788486")
     interval = cfg.get("update_interval_seconds", 15)
@@ -529,8 +547,9 @@ def main():
 
             # Screen 3: Current Game Activity (when enabled)
             if cfg.get("enable_game_activity", True):
-                game = detect_game_activity(cfg)
-                if game:
+                game_info = detect_game_activity(cfg)
+                if game_info:
+                    game = game_info["name"]
                     details = f"🎮 Playing: {game}"
                     if _game_tracker["current"] != game:
                         _game_tracker["current"] = game
@@ -546,7 +565,8 @@ def main():
                 screens.append({
                     "name": "Game Activity",
                     "details": details,
-                    "state": state
+                    "state": state,
+                    "game_info": game_info
                 })
 
             # Screen 4: Optional Minecraft Screen (when enabled)
@@ -561,21 +581,89 @@ def main():
             current_screen = screens[screen_index % len(screens)]
             screen_index = (screen_index + 1) % len(screens)
 
-            large_img = cfg.get("large_image", "protutech")
-            if current_screen["name"] in ("Kryptex Miner", "Crypto Miner"):
-                hover_text = "Protutech Cloud | Crypto Mining Rig"
+            default_large = cfg.get("large_image", "protutech")
+            game_images = cfg.get("game_images", {})
+
+            large_img = default_large
+            large_txt = f"Protutech Cloud | {stats['running_guests']}/{stats['total_guests']} Services Online"
+            small_img = None
+            small_txt = None
+
+            if current_screen["name"] == "Proxmox Overview":
+                large_img = default_large
+                large_txt = f"Protutech Cloud | {stats['running_guests']}/{stats['total_guests']} Services Online"
+                small_img = None
+                small_txt = None
+
+            elif current_screen["name"] in ("Kryptex Miner", "Crypto Miner"):
+                k_img = cfg.get("kryptex_image") or game_images.get("kryptex") or game_images.get("mining")
+                if k_img:
+                    large_img = k_img
+                    large_txt = "Kryptex Mining | Protutech Cloud"
+                    small_img = default_large
+                    small_txt = "Protutech Cloud"
+                else:
+                    large_img = default_large
+                    large_txt = "Protutech Cloud | Crypto Mining Rig"
+                    small_img = None
+                    small_txt = None
+
             elif current_screen["name"] == "Game Activity":
-                hover_text = "Gaming Activity | Protutech Cloud"
-            else:
-                hover_text = f"Protutech Cloud | {stats['running_guests']}/{stats['total_guests']} Services Online"
+                game_info = current_screen.get("game_info")
+                if game_info:
+                    game_name = game_info["name"]
+                    slug = game_info.get("slug", "").lower()
+                    appid = game_info.get("steam_appid")
+
+                    # Check config overrides first: by slug, exact name, or steam appid
+                    chosen_img = (
+                        game_images.get(slug)
+                        or game_images.get(game_name)
+                        or (game_images.get(str(appid)) if appid else None)
+                    )
+
+                    # For Steam games without custom override, auto-fetch official Steam header
+                    if not chosen_img and appid:
+                        chosen_img = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/header.jpg"
+
+                    if chosen_img:
+                        large_img = chosen_img
+                        large_txt = f"Playing {game_name}"
+                        small_img = default_large
+                        small_txt = "Protutech Cloud"
+                    else:
+                        large_img = default_large
+                        large_txt = f"Playing {game_name} | Protutech Cloud"
+                        small_img = None
+                        small_txt = None
+                else:
+                    large_img = default_large
+                    large_txt = "Gaming Activity | Protutech Cloud"
+                    small_img = None
+                    small_txt = None
+
+            elif current_screen["name"] == "Minecraft":
+                mc_img = game_images.get("minecraft") or cfg.get("minecraft_image")
+                if mc_img:
+                    large_img = mc_img
+                    large_txt = "Minecraft Server | Protutech Cloud"
+                    small_img = default_large
+                    small_txt = "Protutech Cloud"
+                else:
+                    large_img = default_large
+                    large_txt = "Protutech Cloud | Minecraft"
 
             activity_kwargs = {
                 "details": current_screen["details"],
                 "state": current_screen["state"],
                 "large_image": large_img,
-                "large_text": hover_text,
+                "large_text": large_txt,
                 "start": boot_time
             }
+            if small_img:
+                activity_kwargs["small_image"] = small_img
+            if small_txt:
+                activity_kwargs["small_text"] = small_txt
 
             # Optional Party Badge (shows e.g. "(16 of 16)" guests)
             if cfg.get("show_party_badge", True) and stats["total_guests"] > 0 and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity"):
