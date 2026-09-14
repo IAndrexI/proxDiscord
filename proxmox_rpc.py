@@ -78,22 +78,38 @@ _cached_proxmox_time = 0.0
 PROXMOX_CACHE_TTL = 18.0  # seconds (one full 3-screen cycle at 6s interval)
 
 
+_pve_worker_started = False
+_pve_lock = threading.Lock()
+
+
+def _pve_stats_worker():
+    while True:
+        try:
+            cfg = load_config()
+            s = fetch_proxmox_stats(cfg)
+            with _pve_lock:
+                global _cached_proxmox_stats, _cached_proxmox_time
+                _cached_proxmox_stats = s
+                _cached_proxmox_time = time.time()
+        except Exception:
+            pass
+        time.sleep(10)
+
+
 def get_cached_proxmox_stats(cfg, force=False):
     """
-    Returns cached Proxmox stats to eliminate network lag on non-Proxmox screens.
-    Fetches fresh stats every PROXMOX_CACHE_TTL seconds or when force=True.
+    Returns cached Proxmox stats instantly from memory without blocking the rotation loop.
+    A dedicated background daemon thread keeps the metrics fresh every 10 seconds.
     """
-    global _cached_proxmox_stats, _cached_proxmox_time
-    now = time.time()
-    if force or _cached_proxmox_stats is None or (now - _cached_proxmox_time) >= PROXMOX_CACHE_TTL:
-        try:
-            _cached_proxmox_stats = fetch_proxmox_stats(cfg)
-            _cached_proxmox_time = now
-        except Exception:
-            if _cached_proxmox_stats is not None:
-                return _cached_proxmox_stats
-            raise
-    return _cached_proxmox_stats
+    global _pve_worker_started
+    if not _pve_worker_started:
+        _pve_worker_started = True
+        t = threading.Thread(target=_pve_stats_worker, daemon=True)
+        t.start()
+    with _pve_lock:
+        if _cached_proxmox_stats is not None:
+            return _cached_proxmox_stats
+    return fetch_proxmox_stats(cfg)
 
 
 def fetch_proxmox_stats(cfg):
@@ -380,21 +396,16 @@ def _ping_minecraft_slp(host, port=25565, timeout=2.0):
         return {"error": str(e)}
 
 
-def fetch_minecraft_status(server_addr, pve_mc_status="Offline", show_address=False):
-    """
-    Strictly verifies if the actual Minecraft server is running and accepting connections.
-    1. Direct SLP ping to configured server address (over TCP)
-    2. Fallback to public status API (api.mcstatus.io)
-    3. Fallback to local container/host LAN endpoints (192.168.0.246 / 192.168.0.2)
-    4. Only returns online=True if a live Minecraft instance answers with valid status.
-    5. Hides server IP/domain when show_address is False for privacy.
-    """
-    now = time.time()
-    clean_addr = (server_addr or "minecraft.protutech.vip").strip()
-    cache_key = f"{clean_addr}_{show_address}"
-    if cache_key in _mc_status_cache and (now - _mc_status_time.get(cache_key, 0)) < MC_CACHE_TTL:
-        return _mc_status_cache[cache_key]
+_mc_worker_started = False
+_mc_lock = threading.Lock()
+_cached_mc_status = None
 
+
+def _query_minecraft_status(server_addr, pve_mc_status="Offline", show_address=False):
+    """
+    Directly queries the Minecraft server (SLP protocol and fallback API).
+    """
+    clean_addr = (server_addr or "minecraft.protutech.vip").strip()
     host = clean_addr
     port = 25565
     if ":" in host:
@@ -405,9 +416,7 @@ def fetch_minecraft_status(server_addr, pve_mc_status="Offline", show_address=Fa
         except ValueError:
             port = 25565
 
-    # Target endpoints to probe for live Minecraft SLP ping
     endpoints = [(host, port)]
-    # If host is a domain, also probe local container/host endpoints as LAN backup
     if not host.replace(".", "").isdigit():
         for lan_ip in ["192.168.0.246", "192.168.0.2"]:
             if (lan_ip, port) not in endpoints:
@@ -415,7 +424,7 @@ def fetch_minecraft_status(server_addr, pve_mc_status="Offline", show_address=Fa
 
     # 1. Direct Minecraft SLP protocol ping
     for h, p in endpoints:
-        slp_data = _ping_minecraft_slp(h, p, timeout=1.2)
+        slp_data = _ping_minecraft_slp(h, p, timeout=1.0)
         if slp_data and "error" not in slp_data and "players" in slp_data:
             players = slp_data.get("players", {})
             online_p = players.get("online", 0)
@@ -425,7 +434,7 @@ def fetch_minecraft_status(server_addr, pve_mc_status="Offline", show_address=Fa
             ver_str = f" | v{ver}" if ver else ""
 
             addr_label = f"🌐 {clean_addr}" if show_address else "🎮 Protutech Cloud"
-            res = {
+            return {
                 "online": True,
                 "players_online": online_p,
                 "players_max": max_p,
@@ -433,14 +442,11 @@ def fetch_minecraft_status(server_addr, pve_mc_status="Offline", show_address=Fa
                 "details": f"⛏️ Minecraft: Online ({online_p}/{max_p} Online)",
                 "state": f"{addr_label}{ver_str}"
             }
-            _mc_status_cache[cache_key] = res
-            _mc_status_time[cache_key] = now
-            return res
 
     # 2. Public API verification (api.mcstatus.io)
     try:
         api_url = f"https://api.mcstatus.io/v2/status/java/{host}:{port}" if port != 25565 else f"https://api.mcstatus.io/v2/status/java/{host}"
-        resp = requests.get(api_url, timeout=2.0)
+        resp = requests.get(api_url, timeout=1.5)
         if resp.status_code == 200:
             data = resp.json()
             if data.get("online"):
@@ -450,7 +456,7 @@ def fetch_minecraft_status(server_addr, pve_mc_status="Offline", show_address=Fa
                 ver_name = data.get("version", {}).get("name_clean", "")
                 ver_str = f" | {ver_name}" if ver_name else ""
                 addr_label = f"🌐 {clean_addr}" if show_address else "🎮 Protutech Cloud"
-                res = {
+                return {
                     "online": True,
                     "players_online": online_p,
                     "players_max": max_p,
@@ -458,16 +464,13 @@ def fetch_minecraft_status(server_addr, pve_mc_status="Offline", show_address=Fa
                     "details": f"⛏️ Minecraft: Online ({online_p}/{max_p} Online)",
                     "state": f"{addr_label}{ver_str}"
                 }
-                _mc_status_cache[cache_key] = res
-                _mc_status_time[cache_key] = now
-                return res
     except Exception:
         pass
 
-    # 3. Server is truly offline (no Minecraft process responding)
+    # 3. Server offline
     stopped_desc = "Server Stopped" if pve_mc_status == "Online" else "Host Offline"
     state_str = f"🌐 {clean_addr} | {stopped_desc}" if show_address else f"Protutech Cloud | {stopped_desc}"
-    res = {
+    return {
         "online": False,
         "players_online": 0,
         "players_max": 0,
@@ -476,9 +479,37 @@ def fetch_minecraft_status(server_addr, pve_mc_status="Offline", show_address=Fa
         "state": state_str
     }
 
-    _mc_status_cache[cache_key] = res
-    _mc_status_time[cache_key] = now
-    return res
+
+def _mc_status_worker():
+    while True:
+        try:
+            cfg = load_config()
+            if cfg.get("enable_minecraft_screen", False):
+                mc_addr = cfg.get("minecraft_server_address", "minecraft.protutech.vip")
+                show_mc_addr = cfg.get("show_minecraft_address", False)
+                res = _query_minecraft_status(mc_addr, show_address=show_mc_addr)
+                with _mc_lock:
+                    global _cached_mc_status
+                    _cached_mc_status = res
+        except Exception:
+            pass
+        time.sleep(15)
+
+
+def fetch_minecraft_status(server_addr, pve_mc_status="Offline", show_address=False):
+    """
+    Returns Minecraft status instantly from memory without stalling rotation cycles.
+    A dedicated background daemon thread updates the status every 15 seconds.
+    """
+    global _mc_worker_started
+    if not _mc_worker_started:
+        _mc_worker_started = True
+        t = threading.Thread(target=_mc_status_worker, daemon=True)
+        t.start()
+    with _mc_lock:
+        if _cached_mc_status is not None:
+            return _cached_mc_status
+    return _query_minecraft_status(server_addr, pve_mc_status=pve_mc_status, show_address=show_address)
 
 
 SPEED_CACHE_PATH = os.path.join(LOG_DIR, "speed_cache.json")
@@ -1041,6 +1072,7 @@ def main():
     boot_time = int(time.time())
     screen_index = 0
     last_screen_count = 4 if cfg.get("enable_minecraft_screen", False) else 3
+    next_tick = time.time()
 
     while True:
         # 1. Ensure Discord RPC connection
@@ -1049,20 +1081,24 @@ def main():
                 rpc = Presence(client_id)
                 rpc.connect()
                 print("[INFO] Connected to Discord RPC successfully!", flush=True)
+                next_tick = time.time()
             except DiscordNotFound:
                 print("[WAIT] Discord client is not running. Retrying in 10s...", flush=True)
                 time.sleep(10)
+                next_tick = time.time()
                 continue
             except Exception as e:
                 print(f"[WAIT] Could not connect to Discord ({e}). Retrying in 10s...", flush=True)
                 time.sleep(10)
+                next_tick = time.time()
                 continue
 
         # 2. Reload config and fetch stats
+        cycle_start = time.time()
         try:
             cfg = load_config()
-            is_screen_one = (screen_index % last_screen_count == 0)
-            stats = get_cached_proxmox_stats(cfg, force=is_screen_one)
+            interval = float(cfg.get("update_interval_seconds", 6))
+            stats = get_cached_proxmox_stats(cfg)
             label = cfg.get("server_label", "Protutech")
 
             # Build list of active screens
@@ -1353,7 +1389,10 @@ def main():
             if "pipe" in str(e).lower() or "socket" in str(e).lower():
                 rpc = None
 
-        time.sleep(interval)
+        # 4. Exact per-screen timing: sleeps exactly (interval - elapsed) seconds
+        elapsed = time.time() - cycle_start
+        sleep_dur = max(0.0, interval - elapsed)
+        time.sleep(sleep_dur)
 
 
 if __name__ == "__main__":
