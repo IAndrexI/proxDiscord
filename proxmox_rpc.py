@@ -489,21 +489,14 @@ def main():
             # Build list of active screens
             screens = []
 
-            # Screen 1: Performance & Uptime
+            # Screen 1: Proxmox Overview (Performance, Workloads & Storage)
             screens.append({
-                "name": "Performance",
-                "details": f"🟢 {label}: {stats['node']} | Up: {stats['uptime']}",
-                "state": f"💻 CPU: {stats['cpu_pct']:.1f}% | 🧠 RAM: {stats['mem_pct']:.0f}% ({stats['mem_used']:.1f}/{stats['mem_total']:.0f}G)"
+                "name": "Proxmox Overview",
+                "details": f"🟢 {label}: {stats['node']} (Up: {stats['uptime']}) | 🖥️ {stats['running_vms']} VMs | 📦 {stats['running_lxcs']} LXCs",
+                "state": f"💻 CPU: {stats['cpu_pct']:.1f}% | 🧠 RAM: {stats['mem_pct']:.0f}% | 💾 Storage: {stats['storage_used_gb']:.0f}G/{stats['storage_total_tb']:.1f}TB"
             })
 
-            # Screen 2: Workloads & Storage
-            screens.append({
-                "name": "Storage & Workloads",
-                "details": f"🖥️ VMs: {stats['running_vms']}/{stats['total_vms']} | 📦 Containers: {stats['running_lxcs']}/{stats['total_lxcs']}",
-                "state": f"💾 Storage: {stats['storage_used_gb']:.0f}G / {stats['storage_total_tb']:.1f}TB ({stats['storage_pool']})"
-            })
-
-            # Screen 3: Cryptocurrency Mining Status (when enabled)
+            # Screen 2: Cryptocurrency Mining Status (when enabled)
             if cfg.get("enable_kryptex_screen", True):
                 k_stats = fetch_kryptex_stats(cfg)
                 if k_stats:
@@ -534,7 +527,7 @@ def main():
                         "state": state
                     })
 
-            # Screen 4: Current Game Activity (when enabled)
+            # Screen 3: Current Game Activity (when enabled)
             if cfg.get("enable_game_activity", True):
                 game = detect_game_activity(cfg)
                 if game:
@@ -556,7 +549,7 @@ def main():
                     "state": state
                 })
 
-            # Screen 5: Optional Minecraft Screen (when enabled)
+            # Screen 4: Optional Minecraft Screen (when enabled)
             if cfg.get("enable_minecraft_screen", False):
                 screens.append({
                     "name": "Minecraft",
