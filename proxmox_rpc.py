@@ -16,13 +16,31 @@ from pypresence import Presence, DiscordNotFound, PipeClosed
 # Suppress self-signed certificate warnings from Proxmox
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Ensure UTF-8 output and immediate flush on Windows console and redirected logs
-if sys.platform == "win32":
+# If running windowless via pythonw.exe, sys.stdout and sys.stderr are None.
+# Redirect them to a local log file so print statements work seamlessly.
+LOG_DIR = os.path.dirname(os.path.abspath(__file__))
+if sys.stdout is None:
+    try:
+        sys.stdout = open(os.path.join(LOG_DIR, "proxmox_rpc.log"), "a", encoding="utf-8", buffering=1)
+        sys.stderr = sys.stdout
+    except Exception:
+        pass
+elif sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True, write_through=True)
         sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True, write_through=True)
     except Exception:
         pass
+
+# Prevent multiple instances from running concurrently
+_app_mutex = None
+if sys.platform == "win32":
+    import ctypes
+    kernel32 = ctypes.windll.kernel32
+    _app_mutex = kernel32.CreateMutexW(None, False, "Global\\ProxmoxDiscordRPC_Instance")
+    if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        print("[INFO] Proxmox Discord RPC is already running in the background. Exiting.", flush=True)
+        sys.exit(0)
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
