@@ -9,6 +9,8 @@ import json
 import os
 import sqlite3
 import sys
+import socket
+import struct
 import time
 import urllib3
 import requests
@@ -377,11 +379,11 @@ def _ping_minecraft_slp(host, port=25565, timeout=2.0):
 
 def fetch_minecraft_status(server_addr, pve_mc_status="Offline"):
     """
-    Retrieves live status of a Minecraft server:
-    1. Direct SLP ping via TCP socket
+    Strictly verifies if the actual Minecraft server is running and accepting connections.
+    1. Direct SLP ping to configured server address (over TCP)
     2. Fallback to public status API (api.mcstatus.io)
-    3. Fallback to Proxmox LXC container status (LXC 102 discopanelminecraft)
-    Results are cached for 15 seconds to prevent network lag.
+    3. Fallback to local container/host LAN endpoints (192.168.0.246 / 192.168.0.2)
+    4. Only returns online=True if a live Minecraft instance answers with valid status.
     """
     now = time.time()
     clean_addr = (server_addr or "minecraft.protutech.vip").strip()
@@ -398,32 +400,41 @@ def fetch_minecraft_status(server_addr, pve_mc_status="Offline"):
         except ValueError:
             port = 25565
 
-    # 1. Direct SLP ping over TCP
-    slp_data = _ping_minecraft_slp(host, port, timeout=2.0)
-    if slp_data and "error" not in slp_data:
-        players = slp_data.get("players", {})
-        online_p = players.get("online", 0)
-        max_p = players.get("max", 0)
-        ver_raw = slp_data.get("version", {}).get("name", "")
-        ver = ver_raw.replace("Requires MC ", "").split()[0] if ver_raw else ""
-        ver_str = f" | v{ver}" if ver else ""
+    # Target endpoints to probe for live Minecraft SLP ping
+    endpoints = [(host, port)]
+    # If host is a domain, also probe local container/host endpoints as LAN backup
+    if not host.replace(".", "").isdigit():
+        for lan_ip in ["192.168.0.246", "192.168.0.2"]:
+            if (lan_ip, port) not in endpoints:
+                endpoints.append((lan_ip, port))
 
-        res = {
-            "online": True,
-            "players_online": online_p,
-            "players_max": max_p,
-            "version": ver,
-            "details": f"⛏️ Minecraft: Online ({online_p}/{max_p} Online)",
-            "state": f"🌐 {clean_addr}{ver_str}"
-        }
-        _mc_status_cache[clean_addr] = res
-        _mc_status_time[clean_addr] = now
-        return res
+    # 1. Direct Minecraft SLP protocol ping
+    for h, p in endpoints:
+        slp_data = _ping_minecraft_slp(h, p, timeout=1.2)
+        if slp_data and "error" not in slp_data and "players" in slp_data:
+            players = slp_data.get("players", {})
+            online_p = players.get("online", 0)
+            max_p = players.get("max", 0)
+            ver_raw = slp_data.get("version", {}).get("name", "")
+            ver = ver_raw.replace("Requires MC ", "").split()[0] if ver_raw else ""
+            ver_str = f" | v{ver}" if ver else ""
 
-    # 2. Public API fallback (api.mcstatus.io)
+            res = {
+                "online": True,
+                "players_online": online_p,
+                "players_max": max_p,
+                "version": ver,
+                "details": f"⛏️ Minecraft: Online ({online_p}/{max_p} Online)",
+                "state": f"🌐 {clean_addr}{ver_str}"
+            }
+            _mc_status_cache[clean_addr] = res
+            _mc_status_time[clean_addr] = now
+            return res
+
+    # 2. Public API verification (api.mcstatus.io)
     try:
         api_url = f"https://api.mcstatus.io/v2/status/java/{host}:{port}" if port != 25565 else f"https://api.mcstatus.io/v2/status/java/{host}"
-        resp = requests.get(api_url, timeout=2.5)
+        resp = requests.get(api_url, timeout=2.0)
         if resp.status_code == 200:
             data = resp.json()
             if data.get("online"):
@@ -446,25 +457,16 @@ def fetch_minecraft_status(server_addr, pve_mc_status="Offline"):
     except Exception:
         pass
 
-    # 3. Fallback: Proxmox container state
-    if pve_mc_status == "Online":
-        res = {
-            "online": True,
-            "players_online": 0,
-            "players_max": 0,
-            "version": "",
-            "details": "⛏️ Minecraft: Online (Protutech)",
-            "state": f"🌐 {clean_addr} | Server Running"
-        }
-    else:
-        res = {
-            "online": False,
-            "players_online": 0,
-            "players_max": 0,
-            "version": "",
-            "details": "⛏️ Minecraft: Standby",
-            "state": f"🌐 {clean_addr} | Offline"
-        }
+    # 3. Server is truly offline (no Minecraft process responding)
+    stopped_desc = "Server Stopped" if pve_mc_status == "Online" else "Host Offline"
+    res = {
+        "online": False,
+        "players_online": 0,
+        "players_max": 0,
+        "version": "",
+        "details": "⛏️ Minecraft Server: Offline",
+        "state": f"🌐 {clean_addr} | {stopped_desc}"
+    }
 
     _mc_status_cache[clean_addr] = res
     _mc_status_time[clean_addr] = now
@@ -1025,7 +1027,7 @@ def main():
                 if mc_info.get("online"):
                     large_txt = f"Minecraft: Online | {mc_addr}"
                 else:
-                    large_txt = f"Minecraft: Standby | {mc_addr}"
+                    large_txt = f"Minecraft: Offline | {mc_addr}"
                 small_img = default_large
                 small_txt = "Protutech Cloud"
 
