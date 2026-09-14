@@ -481,13 +481,42 @@ def fetch_minecraft_status(server_addr, pve_mc_status="Offline", show_address=Fa
     return res
 
 
-_net_stats = {
-    "down_mbps": None,
-    "up_mbps": None,
-    "ping_ms": None,
-    "last_speed_time": 0.0,
-    "last_ping_time": 0.0
-}
+SPEED_CACHE_PATH = os.path.join(LOG_DIR, "speed_cache.json")
+
+
+def load_speed_cache():
+    defaults = {
+        "down_mbps": 8120.0,
+        "up_mbps": 4420.0,
+        "ping_ms": 2.2,
+        "last_speed_time": 0.0,
+        "last_ping_time": 0.0
+    }
+    if os.path.isfile(SPEED_CACHE_PATH):
+        try:
+            with open(SPEED_CACHE_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                for k, v in data.items():
+                    if v is not None:
+                        defaults[k] = v
+        except Exception:
+            pass
+    return defaults
+
+
+def save_speed_cache(stats):
+    try:
+        with open(SPEED_CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump({
+                "down_mbps": stats.get("down_mbps"),
+                "up_mbps": stats.get("up_mbps"),
+                "ping_ms": stats.get("ping_ms")
+            }, f, indent=2)
+    except Exception:
+        pass
+
+
+_net_stats = load_speed_cache()
 _net_worker_started = False
 _net_lock = threading.Lock()
 
@@ -617,6 +646,7 @@ def _net_stats_worker():
                         if u is not None:
                             _net_stats["up_mbps"] = u
                         _net_stats["last_speed_time"] = now
+                        save_speed_cache(_net_stats)
 
         except Exception:
             pass
@@ -1102,8 +1132,8 @@ def main():
                 if active_game:
                     game = active_game["name"]
                     elapsed = format_uptime(now - _game_tracker["start_time"])
-                    details = f"🎮 Playing: {game}"
-                    state = f"⏱️ Session: {elapsed} | Active on PC"
+                    details = f"🎮 {game}: Opened"
+                    state = f"Status: Opened on PC | ⏱️ {elapsed}"
                 else:
                     details = "🎮 Gaming: Standby"
                     state = "No game currently running"
@@ -1137,23 +1167,18 @@ def main():
 
                 def format_net_speed(mbps):
                     if mbps is None:
-                        return None
+                        return "8.12 Gbps"
                     if mbps >= 1000:
                         return f"{mbps / 1000:.2f} Gbps"
                     return f"{mbps:.0f} Mbps"
 
-                if d_val is not None and u_val is not None:
-                    speed_details = f"🚀 Internet: {format_net_speed(d_val)} ↓ | {format_net_speed(u_val)} ↑"
-                elif d_val is not None:
-                    speed_details = f"🚀 Internet: {format_net_speed(d_val)} ↓"
-                else:
-                    speed_details = "🚀 Internet: Testing Bandwidth..."
+                # Always show past / cached speeds; never show "Testing Bandwidth..."
+                d_str = format_net_speed(d_val) if d_val is not None else "8.12 Gbps"
+                u_str = format_net_speed(u_val) if u_val is not None else "4.42 Gbps"
+                speed_details = f"🚀 Internet: {d_str} ↓ | {u_str} ↑"
 
-                if p_val is not None:
-                    p_formatted = f"{p_val:.1f}ms" if p_val < 10 else f"{p_val:.0f}ms"
-                    speed_state = f"⚡ Ping: {p_formatted} | Protutech Cloud"
-                else:
-                    speed_state = "⚡ Latency: Measuring | Protutech Cloud"
+                p_formatted = f"{p_val:.1f}ms" if (p_val is not None and p_val < 10) else (f"{p_val:.0f}ms" if p_val is not None else "2.2ms")
+                speed_state = f"⚡ Ping: {p_formatted} | Protutech Cloud"
 
                 screens.append({
                     "name": "Network Speed",
@@ -1229,12 +1254,12 @@ def main():
 
                     if chosen_img:
                         large_img = chosen_img
-                        large_txt = f"Playing {game_name}"
+                        large_txt = f"{game_name} | Opened"
                         small_img = default_large
                         small_txt = "Protutech Cloud"
                     else:
                         large_img = default_large
-                        large_txt = f"Playing {game_name} | Protutech Cloud"
+                        large_txt = f"{game_name} (Opened) | Protutech Cloud"
                         small_img = None
                         small_txt = None
                 else:
@@ -1272,18 +1297,18 @@ def main():
                 else:
                     large_img = BUILTIN_GAME_ICONS.get("speed", DEFAULT_SPEED_ICON)
 
-                large_txt = "Internet Speed & Ping | Protutech Cloud"
+                large_txt = "Cloudflare Speed & Latency | Protutech Cloud"
                 small_img = default_large
                 small_txt = "Protutech Cloud"
 
-            game_start = int(_game_tracker["start_time"]) if (current_screen["name"] == "Game Activity" and _game_tracker.get("start_time")) else boot_time
             activity_kwargs = {
                 "details": current_screen["details"],
                 "state": current_screen["state"],
                 "large_image": large_img,
-                "large_text": large_txt,
-                "start": game_start
+                "large_text": large_txt
             }
+            if current_screen["name"] != "Game Activity":
+                activity_kwargs["start"] = boot_time
             if small_img:
                 activity_kwargs["small_image"] = small_img
             if small_txt:
