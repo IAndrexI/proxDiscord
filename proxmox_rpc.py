@@ -304,6 +304,173 @@ def fetch_kryptex_stats(cfg):
         return None
 
 
+_mc_status_cache = {}
+_mc_status_time = {}
+MC_CACHE_TTL = 15.0  # Cache Minecraft status for 15s to keep rotations snappy
+
+
+def _ping_minecraft_slp(host, port=25565, timeout=2.0):
+    """
+    Pure Python implementation of Minecraft Server List Ping (SLP) protocol.
+    Directly handshakes over TCP socket to retrieve live players, MOTD, and version.
+    """
+    import struct
+
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect((host, port))
+
+        host_bytes = host.encode("utf-8")
+
+        def pack_varint(val):
+            total = b""
+            while True:
+                byte = val & 0x7F
+                val >>= 7
+                if val:
+                    total += bytes([byte | 0x80])
+                else:
+                    total += bytes([byte])
+                    break
+            return total
+
+        def unpack_varint(sock):
+            val = 0
+            shift = 0
+            while True:
+                b = sock.recv(1)
+                if not b:
+                    return 0
+                byte = b[0]
+                val |= (byte & 0x7F) << shift
+                if not (byte & 0x80):
+                    break
+                shift += 7
+            return val
+
+        # Handshake packet: packet ID 0x00, protocol version 47, host, port, next state 1 (status)
+        data = b"\x00" + pack_varint(47) + pack_varint(len(host_bytes)) + host_bytes + struct.pack(">H", port) + pack_varint(1)
+        s.sendall(pack_varint(len(data)) + data)
+
+        # Status request packet: packet ID 0x00
+        req = b"\x00"
+        s.sendall(pack_varint(len(req)) + req)
+
+        # Read response packet length and packet ID
+        _ = unpack_varint(s)
+        _ = unpack_varint(s)
+        str_len = unpack_varint(s)
+
+        resp_data = b""
+        while len(resp_data) < str_len:
+            chunk = s.recv(min(str_len - len(resp_data), 4096))
+            if not chunk:
+                break
+            resp_data += chunk
+        s.close()
+
+        return json.loads(resp_data.decode("utf-8", errors="ignore"))
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def fetch_minecraft_status(server_addr, pve_mc_status="Offline"):
+    """
+    Retrieves live status of a Minecraft server:
+    1. Direct SLP ping via TCP socket
+    2. Fallback to public status API (api.mcstatus.io)
+    3. Fallback to Proxmox LXC container status (LXC 102 discopanelminecraft)
+    Results are cached for 15 seconds to prevent network lag.
+    """
+    now = time.time()
+    clean_addr = (server_addr or "minecraft.protutech.vip").strip()
+    if clean_addr in _mc_status_cache and (now - _mc_status_time.get(clean_addr, 0)) < MC_CACHE_TTL:
+        return _mc_status_cache[clean_addr]
+
+    host = clean_addr
+    port = 25565
+    if ":" in host:
+        parts = host.split(":", 1)
+        host = parts[0]
+        try:
+            port = int(parts[1])
+        except ValueError:
+            port = 25565
+
+    # 1. Direct SLP ping over TCP
+    slp_data = _ping_minecraft_slp(host, port, timeout=2.0)
+    if slp_data and "error" not in slp_data:
+        players = slp_data.get("players", {})
+        online_p = players.get("online", 0)
+        max_p = players.get("max", 0)
+        ver_raw = slp_data.get("version", {}).get("name", "")
+        ver = ver_raw.replace("Requires MC ", "").split()[0] if ver_raw else ""
+        ver_str = f" | v{ver}" if ver else ""
+
+        res = {
+            "online": True,
+            "players_online": online_p,
+            "players_max": max_p,
+            "version": ver,
+            "details": f"⛏️ Minecraft: Online ({online_p}/{max_p} Online)",
+            "state": f"🌐 {clean_addr}{ver_str}"
+        }
+        _mc_status_cache[clean_addr] = res
+        _mc_status_time[clean_addr] = now
+        return res
+
+    # 2. Public API fallback (api.mcstatus.io)
+    try:
+        api_url = f"https://api.mcstatus.io/v2/status/java/{host}:{port}" if port != 25565 else f"https://api.mcstatus.io/v2/status/java/{host}"
+        resp = requests.get(api_url, timeout=2.5)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("online"):
+                players = data.get("players", {})
+                online_p = players.get("online", 0)
+                max_p = players.get("max", 0)
+                ver_name = data.get("version", {}).get("name_clean", "")
+                ver_str = f" | {ver_name}" if ver_name else ""
+                res = {
+                    "online": True,
+                    "players_online": online_p,
+                    "players_max": max_p,
+                    "version": ver_name,
+                    "details": f"⛏️ Minecraft: Online ({online_p}/{max_p} Online)",
+                    "state": f"🌐 {clean_addr}{ver_str}"
+                }
+                _mc_status_cache[clean_addr] = res
+                _mc_status_time[clean_addr] = now
+                return res
+    except Exception:
+        pass
+
+    # 3. Fallback: Proxmox container state
+    if pve_mc_status == "Online":
+        res = {
+            "online": True,
+            "players_online": 0,
+            "players_max": 0,
+            "version": "",
+            "details": "⛏️ Minecraft: Online (Protutech)",
+            "state": f"🌐 {clean_addr} | Server Running"
+        }
+    else:
+        res = {
+            "online": False,
+            "players_online": 0,
+            "players_max": 0,
+            "version": "",
+            "details": "⛏️ Minecraft: Standby",
+            "state": f"🌐 {clean_addr} | Offline"
+        }
+
+    _mc_status_cache[clean_addr] = res
+    _mc_status_time[clean_addr] = now
+    return res
+
+
 KNOWN_GAMES = {
     "robloxplayerbeta.exe": ("Roblox", "roblox"),
     "robloxplayer.exe": ("Roblox", "roblox"),
@@ -678,6 +845,7 @@ def main():
     rpc = None
     boot_time = int(time.time())
     screen_index = 0
+    last_screen_count = 4 if cfg.get("enable_minecraft_screen", False) else 3
 
     while True:
         # 1. Ensure Discord RPC connection
@@ -697,7 +865,7 @@ def main():
 
         # 2. Fetch stats and construct screen
         try:
-            is_screen_one = (screen_index % 3 == 0)
+            is_screen_one = (screen_index % last_screen_count == 0)
             stats = get_cached_proxmox_stats(cfg, force=is_screen_one)
             label = cfg.get("server_label", "Homelabs")
 
@@ -781,14 +949,18 @@ def main():
 
             # Screen 4: Optional Minecraft Screen (when enabled)
             if cfg.get("enable_minecraft_screen", False):
+                mc_addr = cfg.get("minecraft_server_address", "minecraft.protutech.vip")
+                mc_status = fetch_minecraft_status(mc_addr, pve_mc_status=stats.get("mc_status", "Offline"))
                 screens.append({
                     "name": "Minecraft",
-                    "details": f"⛏️ Minecraft Server: {stats['mc_status']}",
-                    "state": f"🎮 Server: {cfg.get('minecraft_server_address', 'Online')}"
+                    "details": mc_status["details"],
+                    "state": mc_status["state"],
+                    "mc_status": mc_status
                 })
 
             # Select current screen and advance
             current_screen = screens[screen_index % len(screens)]
+            last_screen_count = max(1, len(screens))
             screen_index = (screen_index + 1) % len(screens)
 
             default_large = cfg.get("large_image", "protutech")
@@ -840,15 +1012,22 @@ def main():
                     small_txt = None
 
             elif current_screen["name"] == "Minecraft":
-                mc_img = game_images.get("minecraft") or cfg.get("minecraft_image")
-                if mc_img:
+                mc_img = cfg.get("minecraft_image") or game_images.get("minecraft")
+                if mc_img and (mc_img.startswith("http://") or mc_img.startswith("https://")):
                     large_img = mc_img
-                    large_txt = "Minecraft Server | Protutech Cloud"
-                    small_img = default_large
-                    small_txt = "Protutech Cloud"
+                elif mc_img in BUILTIN_GAME_ICONS:
+                    large_img = BUILTIN_GAME_ICONS[mc_img]
                 else:
-                    large_img = default_large
-                    large_txt = "Protutech Cloud | Minecraft"
+                    large_img = BUILTIN_GAME_ICONS.get("minecraft", default_large)
+
+                mc_addr = cfg.get("minecraft_server_address", "minecraft.protutech.vip")
+                mc_info = current_screen.get("mc_status", {})
+                if mc_info.get("online"):
+                    large_txt = f"Minecraft: Online | {mc_addr}"
+                else:
+                    large_txt = f"Minecraft: Standby | {mc_addr}"
+                small_img = default_large
+                small_txt = "Protutech Cloud"
 
             game_start = int(_game_tracker["start_time"]) if (current_screen["name"] == "Game Activity" and _game_tracker.get("start_time")) else boot_time
             activity_kwargs = {
@@ -863,8 +1042,13 @@ def main():
             if small_txt:
                 activity_kwargs["small_text"] = small_txt
 
-            # Optional Party Badge (shows e.g. "(16 of 16)" guests)
-            if cfg.get("show_party_badge", True) and stats["total_guests"] > 0 and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity"):
+            # Optional Party Badge (shows e.g. "(16 of 16)" guests or "(2 of 20)" minecraft players)
+            if current_screen["name"] == "Minecraft":
+                mc_info = current_screen.get("mc_status", {})
+                if mc_info.get("online") and mc_info.get("players_max", 0) > 0:
+                    activity_kwargs["party_size"] = [mc_info["players_online"], mc_info["players_max"]]
+                    activity_kwargs["party_id"] = "minecraft_players"
+            elif cfg.get("show_party_badge", True) and stats["total_guests"] > 0 and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity"):
                 activity_kwargs["party_size"] = [stats["running_guests"], stats["total_guests"]]
                 activity_kwargs["party_id"] = "protutech_guests"
 

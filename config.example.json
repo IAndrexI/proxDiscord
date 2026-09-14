@@ -18,6 +18,6 @@
     "minecraft": "minecraft",
     "kryptex": "kryptex"
   },
-  "enable_minecraft_screen": false,
-  "minecraft_server_address": "play.yourdomain.com:25565"
+  "enable_minecraft_screen": true,
+  "minecraft_server_address": "minecraft.yourdomain.com"
 }
