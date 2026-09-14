@@ -23,6 +23,7 @@
   "minecraft_server_address": "minecraft.yourdomain.com",
   "show_minecraft_address": false,
   "enable_speed_screen": true,
+  "speed_image": "cloudflare",
   "speedtest_interval_minutes": 30,
   "ping_host": "1.1.1.1"
 }

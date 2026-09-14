@@ -836,12 +836,14 @@ def detect_game_activity(cfg):
 # Official Brand Logo CDNs
 DEFAULT_PROXMOX_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png"
 DEFAULT_KRYPTEX_ICON = "https://www.kryptex.com/static/v2/favicons/android-chrome-512x512.aba2291aca42.png"
-DEFAULT_SPEED_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/speedtest-tracker.png"
+DEFAULT_CLOUDFLARE_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/cloudflare.png"
+DEFAULT_SPEED_ICON = DEFAULT_CLOUDFLARE_ICON
 
 # Built-in official Discord CDN application icons for instant zero-latency image matching
 BUILTIN_GAME_ICONS = {
     "proxmox": DEFAULT_PROXMOX_ICON,
     "kryptex": DEFAULT_KRYPTEX_ICON,
+    "cloudflare": DEFAULT_CLOUDFLARE_ICON,
     "speed": DEFAULT_SPEED_ICON,
     "speedtest": DEFAULT_SPEED_ICON,
     "roblox": "https://cdn.discordapp.com/app-icons/363445589247131668/f2b60e350a2097289b3b0b877495e55f.png",
@@ -1259,7 +1261,7 @@ def main():
                 small_txt = "Protutech Cloud"
 
             elif current_screen["name"] == "Network Speed":
-                speed_img = cfg.get("speed_image") or game_images.get("speed") or game_images.get("speedtest")
+                speed_img = cfg.get("speed_image") or game_images.get("speed") or game_images.get("cloudflare") or game_images.get("speedtest")
                 if speed_img and (speed_img.startswith("http://") or speed_img.startswith("https://")):
                     large_img = speed_img
                 elif speed_img in BUILTIN_GAME_ICONS:
