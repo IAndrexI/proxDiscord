@@ -149,6 +149,36 @@ def fetch_proxmox_stats(cfg):
     }
 
 
+COIN_FULL_NAMES = {
+    "prl": "Pearl",
+    "xel": "Xelis",
+    "xmr": "Monero",
+    "rvn": "Ravencoin",
+    "erg": "Ergo",
+    "nexa": "Nexa",
+    "iron": "Iron Fish",
+    "cfx": "Conflux",
+    "zeph": "Zephyr",
+    "kls": "Karlsen",
+    "pyi": "Pyrin",
+    "xna": "Neoxa",
+    "clore": "Clore.ai",
+    "sal": "Salvia",
+    "blocx": "BLOCX",
+    "xtm": "Torum",
+    "ethw": "Ethereum PoW",
+    "qtc": "Quantus",
+    "btc": "Bitcoin",
+    "etc": "Ethereum Classic",
+    "kas": "Kaspa",
+    "alph": "Alephium",
+    "flux": "Flux",
+    "karlsen": "Karlsen",
+    "dynex": "Dynex",
+    "octa": "OctaSpace"
+}
+
+
 def fetch_kryptex_stats(cfg):
     """
     Reads local Kryptex statistics (mining status, hashrate, hardware temps, and balance)
@@ -222,11 +252,14 @@ def fetch_kryptex_stats(cfg):
                 hr = p["hashrate"] or 0
                 if hr > 0:
                     any_hashrate = True
+                coin_slug = (p["coin"] or "").lower()
+                coin_full = COIN_FULL_NAMES.get(coin_slug, coin_slug.upper())
                 info = {
                     "name": dr["name"],
                     "temp": dr["core_temperature"],
                     "power": dr["power_usage"],
                     "coin": p["coin"].upper(),
+                    "coin_full": coin_full,
                     "hashrate": fmt_hr(hr)
                 }
                 if dr["type_id"] == 2:
@@ -316,13 +349,10 @@ def main():
 
                         details = f"⛏️ Crypto Mining{bal_str}"
                         parts = []
-                        if gpu:
-                            coin_suffix = f" ({gpu['coin']})" if gpu.get("coin") else ""
-                            gpu_name = gpu["name"].replace("NVIDIA GeForce ", "")
-                            parts.append(f"🎮 {gpu_name}: {gpu['hashrate']}{coin_suffix}")
-                        if cpu:
-                            coin_suffix = f" ({cpu['coin']})" if cpu.get("coin") else ""
-                            parts.append(f"💻 CPU: {cpu['hashrate']}{coin_suffix}")
+                        if gpu and gpu.get("coin_full"):
+                            parts.append(f"🎮 GPU: {gpu['coin_full']}")
+                        if cpu and cpu.get("coin_full"):
+                            parts.append(f"💻 CPU: {cpu['coin_full']}")
 
                         state = " | ".join(parts) if parts else "Mining active"
                     else:
