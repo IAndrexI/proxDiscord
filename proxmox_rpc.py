@@ -836,7 +836,7 @@ def detect_game_activity(cfg):
 # Official Brand Logo CDNs
 DEFAULT_PROXMOX_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png"
 DEFAULT_KRYPTEX_ICON = "https://www.kryptex.com/static/v2/favicons/android-chrome-512x512.aba2291aca42.png"
-DEFAULT_CLOUDFLARE_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/cloudflare.png"
+DEFAULT_CLOUDFLARE_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/cloudflare.png"
 DEFAULT_SPEED_ICON = DEFAULT_CLOUDFLARE_ICON
 
 # Built-in official Discord CDN application icons for instant zero-latency image matching
