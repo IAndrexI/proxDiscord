@@ -11,6 +11,7 @@ import sqlite3
 import sys
 import socket
 import struct
+import threading
 import time
 import urllib3
 import requests
@@ -478,6 +479,113 @@ def fetch_minecraft_status(server_addr, pve_mc_status="Offline", show_address=Fa
     return res
 
 
+_net_stats = {
+    "down_mbps": None,
+    "up_mbps": None,
+    "ping_ms": None,
+    "last_speed_time": 0.0,
+    "last_ping_time": 0.0
+}
+_net_worker_started = False
+_net_lock = threading.Lock()
+
+
+def measure_ping(host="1.1.1.1", port=443, count=3):
+    """
+    Measures low-latency TCP ping to reliable DNS hosts (Cloudflare / Google).
+    """
+    latencies = []
+    for _ in range(count):
+        t0 = time.perf_counter()
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1.5)
+        try:
+            s.connect((host, port))
+            lat = (time.perf_counter() - t0) * 1000.0
+            latencies.append(lat)
+        except Exception:
+            pass
+        finally:
+            s.close()
+    return round(sum(latencies) / len(latencies), 1) if latencies else None
+
+
+def measure_speeds():
+    """
+    Performs a lightweight bandwidth test via Cloudflare's speed test infrastructure.
+    Transfers ~10MB download and ~5MB upload to evaluate connection speeds without saturating bandwidth.
+    """
+    down_mbps = None
+    up_mbps = None
+    try:
+        t0 = time.perf_counter()
+        r = requests.get("https://speed.cloudflare.com/__down?bytes=10000000", timeout=8)
+        dur = time.perf_counter() - t0
+        if r.status_code == 200 and dur > 0:
+            down_mbps = round((len(r.content) * 8) / (dur * 1_000_000), 1)
+    except Exception:
+        pass
+
+    try:
+        payload = b"0" * (5 * 1024 * 1024)
+        t0 = time.perf_counter()
+        r = requests.post("https://speed.cloudflare.com/__up", data=payload, timeout=8)
+        dur = time.perf_counter() - t0
+        if r.status_code == 200 and dur > 0:
+            up_mbps = round((len(payload) * 8) / (dur * 1_000_000), 1)
+    except Exception:
+        pass
+
+    return down_mbps, up_mbps
+
+
+def _net_stats_worker():
+    """
+    Background worker that updates ping every 30s and speed tests every configured interval.
+    """
+    while True:
+        try:
+            cfg = load_config()
+            if not cfg.get("enable_speed_screen", False):
+                time.sleep(5)
+                continue
+
+            now = time.time()
+            interval_min = cfg.get("speedtest_interval_minutes", 30)
+            interval_sec = max(60, int(interval_min * 60))
+            ping_host = cfg.get("ping_host", "1.1.1.1")
+
+            # 1. Update Ping every 30 seconds
+            if now - _net_stats["last_ping_time"] >= 30.0:
+                p = measure_ping(ping_host)
+                if p is not None:
+                    with _net_lock:
+                        _net_stats["ping_ms"] = p
+                        _net_stats["last_ping_time"] = now
+
+            # 2. Update Speeds every interval or on initial run
+            if now - _net_stats["last_speed_time"] >= interval_sec or _net_stats["down_mbps"] is None:
+                d, u = measure_speeds()
+                with _net_lock:
+                    if d is not None:
+                        _net_stats["down_mbps"] = d
+                    if u is not None:
+                        _net_stats["up_mbps"] = u
+                    _net_stats["last_speed_time"] = now
+
+        except Exception:
+            pass
+        time.sleep(5)
+
+
+def start_net_worker_if_needed(cfg):
+    global _net_worker_started
+    if cfg.get("enable_speed_screen", False) and not _net_worker_started:
+        _net_worker_started = True
+        t = threading.Thread(target=_net_stats_worker, daemon=True)
+        t.start()
+
+
 KNOWN_GAMES = {
     "robloxplayerbeta.exe": ("Roblox", "roblox"),
     "robloxplayer.exe": ("Roblox", "roblox"),
@@ -686,11 +794,14 @@ def detect_game_activity(cfg):
 # Official Brand Logo CDNs
 DEFAULT_PROXMOX_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png"
 DEFAULT_KRYPTEX_ICON = "https://www.kryptex.com/static/v2/favicons/android-chrome-512x512.aba2291aca42.png"
+DEFAULT_SPEED_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/speedtest-tracker.png"
 
 # Built-in official Discord CDN application icons for instant zero-latency image matching
 BUILTIN_GAME_ICONS = {
     "proxmox": DEFAULT_PROXMOX_ICON,
     "kryptex": DEFAULT_KRYPTEX_ICON,
+    "speed": DEFAULT_SPEED_ICON,
+    "speedtest": DEFAULT_SPEED_ICON,
     "roblox": "https://cdn.discordapp.com/app-icons/363445589247131668/f2b60e350a2097289b3b0b877495e55f.png",
     "minecraft": "https://cdn.discordapp.com/app-icons/1402418491272986635/166fbad351ecdd02d11a3b464748f66b.png",
     "valorant": "https://cdn.discordapp.com/app-icons/700136079562375258/11f81959f4fdd76ca6c39c59eac256c1.png",
@@ -870,8 +981,9 @@ def main():
                 time.sleep(10)
                 continue
 
-        # 2. Fetch stats and construct screen
+        # 2. Reload config and fetch stats
         try:
+            cfg = load_config()
             is_screen_one = (screen_index % last_screen_count == 0)
             stats = get_cached_proxmox_stats(cfg, force=is_screen_one)
             label = cfg.get("server_label", "Protutech")
@@ -968,10 +1080,65 @@ def main():
                     "mc_status": mc_status
                 })
 
-            # Select current screen and advance
-            current_screen = screens[screen_index % len(screens)]
-            last_screen_count = max(1, len(screens))
-            screen_index = (screen_index + 1) % len(screens)
+            # Screen 5: Optional Network Speed & Latency (when enabled)
+            if cfg.get("enable_speed_screen", False):
+                start_net_worker_if_needed(cfg)
+                with _net_lock:
+                    d_val = _net_stats.get("down_mbps")
+                    u_val = _net_stats.get("up_mbps")
+                    p_val = _net_stats.get("ping_ms")
+
+                if d_val is not None and u_val is not None:
+                    speed_details = f"🚀 Internet: {d_val:.0f} Mbps ↓ | {u_val:.0f} Mbps ↑"
+                elif d_val is not None:
+                    speed_details = f"🚀 Internet: {d_val:.0f} Mbps ↓"
+                else:
+                    speed_details = "🚀 Internet: Testing Bandwidth..."
+
+                if p_val is not None:
+                    speed_state = f"⚡ Ping: {p_val:.0f}ms | Protutech Cloud"
+                else:
+                    speed_state = "⚡ Latency: Measuring | Protutech Cloud"
+
+                screens.append({
+                    "name": "Network Speed",
+                    "details": speed_details,
+                    "state": speed_state
+                })
+
+            # Screen Selection: Manual lock or timed rotation
+            active_mode = str(cfg.get("active_screen", "rotate")).strip().lower()
+            selected_screen = None
+
+            if active_mode not in ("rotate", "all", "timer", "timed", "cycle"):
+                alias_map = {
+                    "proxmox": "Proxmox Overview",
+                    "pve": "Proxmox Overview",
+                    "server": "Proxmox Overview",
+                    "mining": "Crypto Miner",
+                    "kryptex": "Crypto Miner",
+                    "miner": "Crypto Miner",
+                    "game": "Game Activity",
+                    "gaming": "Game Activity",
+                    "minecraft": "Minecraft",
+                    "mc": "Minecraft",
+                    "speed": "Network Speed",
+                    "network": "Network Speed",
+                    "internet": "Network Speed",
+                    "ping": "Network Speed"
+                }
+                target_name = alias_map.get(active_mode, active_mode)
+                for s in screens:
+                    if s["name"].lower() == target_name.lower() or target_name.lower() in s["name"].lower():
+                        selected_screen = s
+                        break
+
+            if selected_screen:
+                current_screen = selected_screen
+            else:
+                current_screen = screens[screen_index % len(screens)]
+                last_screen_count = max(1, len(screens))
+                screen_index = (screen_index + 1) % len(screens)
 
             default_large = cfg.get("large_image", "protutech")
             game_images = cfg.get("game_images", {})
@@ -1041,6 +1208,19 @@ def main():
                 small_img = default_large
                 small_txt = "Protutech Cloud"
 
+            elif current_screen["name"] == "Network Speed":
+                speed_img = cfg.get("speed_image") or game_images.get("speed") or game_images.get("speedtest")
+                if speed_img and (speed_img.startswith("http://") or speed_img.startswith("https://")):
+                    large_img = speed_img
+                elif speed_img in BUILTIN_GAME_ICONS:
+                    large_img = BUILTIN_GAME_ICONS[speed_img]
+                else:
+                    large_img = BUILTIN_GAME_ICONS.get("speed", DEFAULT_SPEED_ICON)
+
+                large_txt = "Internet Speed & Ping | Protutech Cloud"
+                small_img = default_large
+                small_txt = "Protutech Cloud"
+
             game_start = int(_game_tracker["start_time"]) if (current_screen["name"] == "Game Activity" and _game_tracker.get("start_time")) else boot_time
             activity_kwargs = {
                 "details": current_screen["details"],
@@ -1060,7 +1240,7 @@ def main():
                 if mc_info.get("online") and mc_info.get("players_max", 0) > 0:
                     activity_kwargs["party_size"] = [mc_info["players_online"], mc_info["players_max"]]
                     activity_kwargs["party_id"] = "minecraft_players"
-            elif cfg.get("show_party_badge", True) and stats["total_guests"] > 0 and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity"):
+            elif cfg.get("show_party_badge", True) and stats["total_guests"] > 0 and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity", "Network Speed"):
                 activity_kwargs["party_size"] = [stats["running_guests"], stats["total_guests"]]
                 activity_kwargs["party_id"] = "protutech_guests"
 

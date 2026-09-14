@@ -6,6 +6,7 @@
   "proxmox_token_id": "root@pam!discord-rpc",
   "proxmox_token_secret": "YOUR_API_TOKEN_SECRET_HERE",
   "update_interval_seconds": 6,
+  "active_screen": "rotate",
   "large_image": "protutech",
   "show_party_badge": true,
   "enable_kryptex_screen": true,
@@ -20,5 +21,8 @@
   },
   "enable_minecraft_screen": true,
   "minecraft_server_address": "minecraft.yourdomain.com",
-  "show_minecraft_address": false
+  "show_minecraft_address": false,
+  "enable_speed_screen": true,
+  "speedtest_interval_minutes": 30,
+  "ping_host": "1.1.1.1"
 }

@@ -7,10 +7,13 @@ Display live Proxmox VE server stats directly on your Discord profile using Disc
 </p>
 
 ## Features
-- **Auto-Rotating Screens**: Cycles through your complete setup every 15 seconds:
-  1. **Proxmox Overview**: Node status, Uptime, running VMs/LXCs, CPU, RAM, and Storage
-  2. **Crypto Mining**: Live GPU & CPU cryptocurrencies being mined (Pearl, Xelis, etc.)
-  3. **Game Activity**: Live auto-detection of games currently playing on your PC (Steam, Roblox, Minecraft, Epic Games, Riot, etc.)
+- **Auto-Rotating or Manually Locked Screens**:
+  1. **Proxmox Overview**: Node status, Uptime, running VMs/LXCs, CPU, RAM, and Storage.
+  2. **Crypto Mining**: Live GPU & CPU cryptocurrencies being mined via Kryptex (Pearl, Xelis, etc.).
+  3. **Game Activity**: Live auto-detection of games currently playing on your PC (Steam, Roblox, Minecraft, Epic Games, Riot, etc.).
+  4. **Minecraft Server**: Live server status (Online/Offline) and player counts with optional hidden IP for privacy.
+  5. **Internet Speed & Ping**: Live TCP latency (ms) and periodic download/upload bandwidth metrics (Mbps).
+- **Manual Screen Locking**: Lock Discord Rich Presence to a specific screen (`"active_screen": "proxmox" | "mining" | "gaming" | "minecraft" | "speed"`) or keep it on timed rotation (`"rotate"`). Changes apply immediately via hot-reloading!
 - **Dynamic Image Swapping**:
   - Automatically fetches official game banners for all Steam games.
   - Supports custom game/mining images via Discord Developer Portal asset keys or direct HTTPS URLs in `config.json`.
@@ -33,7 +36,7 @@ Copy `config.example.json` to `config.json`:
 ```bash
 copy config.example.json config.json
 ```
-Fill in your Proxmox connection details, Discord Application ID, and optional game images in `config.json`:
+Fill in your Proxmox connection details, Discord Application ID, and optional screens in `config.json`:
 ```json
 {
   "discord_client_id": "YOUR_DISCORD_APPLICATION_ID",
@@ -42,11 +45,18 @@ Fill in your Proxmox connection details, Discord Application ID, and optional ga
   "proxmox_node": "Protutech",
   "proxmox_token_id": "root@pam!discord-rpc",
   "proxmox_token_secret": "YOUR_TOKEN_SECRET_HERE",
-  "update_interval_seconds": 15,
+  "update_interval_seconds": 6,
+  "active_screen": "rotate",
   "large_image": "protutech",
   "show_party_badge": true,
   "enable_kryptex_screen": true,
   "enable_game_activity": true,
+  "enable_minecraft_screen": true,
+  "minecraft_server_address": "minecraft.protutech.vip",
+  "show_minecraft_address": false,
+  "enable_speed_screen": true,
+  "speedtest_interval_minutes": 30,
+  "ping_host": "1.1.1.1",
   "game_images": {
     "roblox": "roblox",
     "minecraft": "minecraft",
