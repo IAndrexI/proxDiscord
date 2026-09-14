@@ -301,34 +301,36 @@ def main():
                 "state": f"💾 Storage: {stats['storage_used_gb']:.0f}G / {stats['storage_total_tb']:.1f}TB ({stats['storage_pool']})"
             })
 
-            # Screen 3: Kryptex Mining Status (when enabled)
+            # Screen 3: Cryptocurrency Mining Status (when enabled)
             if cfg.get("enable_kryptex_screen", True):
                 k_stats = fetch_kryptex_stats(cfg)
                 if k_stats:
                     show_bal = cfg.get("show_kryptex_balance", False)
-                    show_gpu = cfg.get("show_kryptex_gpu", False)
+                    show_gpu = cfg.get("show_kryptex_gpu", True)
+                    show_cpu = cfg.get("show_kryptex_cpu", True)
 
                     bal_str = f" | 💰 ${k_stats['balance']:.2f}" if (show_bal and k_stats.get("balance") is not None) else ""
                     if k_stats["mining"]:
                         gpu = k_stats.get("gpu") if show_gpu else None
-                        cpu = k_stats.get("cpu")
+                        cpu = k_stats.get("cpu") if show_cpu else None
 
-                        details = f"⛏️ Kryptex: Mining{bal_str}"
+                        details = f"⛏️ Crypto Mining{bal_str}"
                         parts = []
                         if gpu:
-                            temp_str = f" ({gpu['temp']}°C)" if gpu.get("temp") else ""
-                            parts.append(f"🎮 {gpu['name'].replace('NVIDIA GeForce ', '')}: {gpu['hashrate']}{temp_str}")
+                            coin_suffix = f" ({gpu['coin']})" if gpu.get("coin") else ""
+                            gpu_name = gpu["name"].replace("NVIDIA GeForce ", "")
+                            parts.append(f"🎮 {gpu_name}: {gpu['hashrate']}{coin_suffix}")
                         if cpu:
                             coin_suffix = f" ({cpu['coin']})" if cpu.get("coin") else ""
                             parts.append(f"💻 CPU: {cpu['hashrate']}{coin_suffix}")
 
                         state = " | ".join(parts) if parts else "Mining active"
                     else:
-                        details = f"⛏️ Kryptex: Idle{bal_str}"
-                        state = "Miner paused / standby"
+                        details = f"⛏️ Crypto Mining: Idle{bal_str}"
+                        state = "GPU & CPU mining standby"
 
                     screens.append({
-                        "name": "Kryptex Miner",
+                        "name": "Crypto Miner",
                         "details": details,
                         "state": state
                     })
@@ -346,8 +348,8 @@ def main():
             screen_index = (screen_index + 1) % len(screens)
 
             large_img = cfg.get("large_image", "protutech")
-            if current_screen["name"] == "Kryptex Miner":
-                hover_text = "Protutech Cloud | Kryptex Mining Rig"
+            if current_screen["name"] in ("Kryptex Miner", "Crypto Miner"):
+                hover_text = "Protutech Cloud | Crypto Mining Rig"
             else:
                 hover_text = f"Protutech Cloud | {stats['running_guests']}/{stats['total_guests']} Services Online"
 
