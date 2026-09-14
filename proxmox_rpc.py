@@ -388,7 +388,7 @@ def detect_game_activity(cfg):
                 name = f"Steam Game ({running_appid})"
 
             slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
-            res = {"name": name, "slug": slug, "steam_appid": running_appid}
+            res = {"name": name, "slug": slug, "steam_appid": running_appid, "exe_name": None}
             _steam_app_cache[running_appid] = res
             return res
     except Exception:
@@ -433,10 +433,10 @@ def detect_game_activity(cfg):
                 if isinstance(c_info, dict):
                     name = c_info.get("name", exe_name)
                     slug = c_info.get("slug") or re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
-                    return {"name": name, "slug": slug, "steam_appid": c_info.get("steam_appid")}
+                    return {"name": name, "slug": slug, "steam_appid": c_info.get("steam_appid"), "exe_name": exe_name}
                 name = str(c_info)
                 slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
-                return {"name": name, "slug": slug, "steam_appid": None}
+                return {"name": name, "slug": slug, "steam_appid": None, "exe_name": exe_name}
 
         # Check known popular games
         for exe_name, g_info in KNOWN_GAMES.items():
@@ -446,9 +446,131 @@ def detect_game_activity(cfg):
                 else:
                     name = g_info
                     slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
-                return {"name": name, "slug": slug, "steam_appid": None}
+                return {"name": name, "slug": slug, "steam_appid": None, "exe_name": exe_name}
     except Exception:
         pass
+
+    return None
+
+
+# Built-in official Discord CDN application icons for instant zero-latency image matching
+BUILTIN_GAME_ICONS = {
+    "roblox": "https://cdn.discordapp.com/app-icons/363445589247131668/f2b60e350a2097289b3b0b877495e55f.png",
+    "minecraft": "https://cdn.discordapp.com/app-icons/1402418491272986635/166fbad351ecdd02d11a3b464748f66b.png",
+    "valorant": "https://cdn.discordapp.com/app-icons/700136079562375258/11f81959f4fdd76ca6c39c59eac256c1.png",
+    "fortnite": "https://cdn.discordapp.com/app-icons/1402418703554842694/c1864b38910c209afd5bf6423b672022.png",
+    "league_of_legends": "https://cdn.discordapp.com/app-icons/1402418765274026024/76118d09f6d4d76f8271e847cbbfe7b2.png",
+    "genshin_impact": "https://cdn.discordapp.com/app-icons/762434991303950386/0a7cc00267310bf4afdd78b175a7aeea.png",
+    "honkai_star_rail": "https://cdn.discordapp.com/app-icons/1121201675240210523/444d067889922e42b0af99b13e5d5c72.png",
+    "zenless_zone_zero": "https://cdn.discordapp.com/app-icons/1257819671114289184/fb528a20677f93d8f365fac88e3f0713.png",
+    "overwatch": "https://cdn.discordapp.com/app-icons/356875221078245376/a60bb76ba4d4acafbd4cb9aad6e61739.png",
+    "apex_legends": "https://cdn.discordapp.com/app-icons/542075586886107149/91fac0600c5b6527c1aea95a93c6a8e0.png",
+    "gta5": "https://cdn.discordapp.com/app-icons/1402418714716143646/b77111108195cd5e4dd2011dd39bf67d.png",
+    "osu": "https://cdn.discordapp.com/app-icons/1402418239342120960/ea86f6c52576847a7cb81f1c1faa18a3.png",
+    "rocket_league": "https://cdn.discordapp.com/app-icons/356877880938070016/a74899a5190c48a3e6ce9f8d2eaff348.png",
+    "destiny2": "https://cdn.discordapp.com/app-icons/372438022647578634/876323877dd2f3e3fdfc1637a30eb356.png",
+    "cyberpunk2077": "https://cdn.discordapp.com/app-icons/787443973538971748/023b9ec72cd60e31e25bca878c77984a.png",
+    "eldenring": "https://cdn.discordapp.com/app-icons/1377783621775130694/be5767e5d6fc2f9ab982f461cff7a528.png",
+    "helldivers2": "https://cdn.discordapp.com/app-icons/1205090671527071784/6d49be66d5f2b88bdfc8cc7095abdbda.png",
+    "palworld": "https://cdn.discordapp.com/app-icons/1197827812623650866/f2039761488809de552d44ebc6739ffe.png",
+    "terraria": "https://cdn.discordapp.com/app-icons/1402418344912752671/4c3c185abc0dfb4cb1ec5612de4d7366.png",
+    "tarkov": "https://cdn.discordapp.com/app-icons/406637848297472017/1e5e0defac5328c442fbd425f2079b69.png",
+    "warframe": "https://cdn.discordapp.com/app-icons/1402416961962381402/17bae2c6f31fcebbbac09b7a569fc0b9.png",
+    "rainbowsix": "https://cdn.discordapp.com/app-icons/356876590342340608/01125e693db476e6f83f7d9769080fd0.png",
+    "rust": "https://cdn.discordapp.com/app-icons/1402418594532298837/9ab7e18473429b016307b867e6c924a4.png",
+    "deadbydaylight": "https://cdn.discordapp.com/app-icons/357607133254254632/64e7623c9af49f2e7dc7048df16b1013.png",
+    "wow": "https://cdn.discordapp.com/app-icons/356875762940379136/fc92f820c44e72085dc6205e5e746850.png",
+    "diablo4": "https://cdn.discordapp.com/app-icons/1113966530531704943/ced913ddd2b497545cd3e2931b1310ab.png",
+    "starcraft": "https://cdn.discordapp.com/app-icons/358425800766128128/ba12a43bee663d2a3b06a583bc80f4bf.png",
+    "sc2": "https://cdn.discordapp.com/app-icons/358425800766128128/ba12a43bee663d2a3b06a583bc80f4bf.png",
+    "hots": "https://cdn.discordapp.com/app-icons/356878860190613504/7b3bc9037909ab14917accca8c6fb8c1.png",
+    "fallout4": "https://cdn.discordapp.com/app-icons/359509759642042378/6c903026d4fc97559ba48ecf9cc4dc04.png",
+    "skyrim": "https://cdn.discordapp.com/app-icons/359507724196773888/05e8f8b49eb61bb6f4a97c77c1d7fbdb.png",
+    "darksouls3": "https://cdn.discordapp.com/app-icons/359509500199436288/4ae400e61d27c2b0b86fd1c15f4eb8d7.png",
+    "armoredcore6": "https://cdn.discordapp.com/app-icons/1146138865673982022/4827b30d4aa166729ecc2ed21c43a465.png",
+    "mhrise": "https://cdn.discordapp.com/app-icons/1022248949865791588/93ca098b4b56d0e9df5bfe49e990fe4d.png",
+    "mhworld": "https://cdn.discordapp.com/app-icons/477152881196269569/8fd08a2e0440f80334ea403d2300a828.png",
+    "blackmythwukong": "https://cdn.discordapp.com/app-icons/1272842103910699040/908f3f31004652e1971c6e8a4b9d7c30.png",
+    "lethalcompany": "https://cdn.discordapp.com/app-icons/1167674267748540516/4f1ee29121b9a0f4dfcc4ce6bb9bd5af.png",
+    "marvelrivals": "https://cdn.discordapp.com/app-icons/1314395942253756416/2dd7882b887306ab5afad03452869ad8.png",
+    "sekiro": "https://cdn.discordapp.com/app-icons/1402416796874834143/d21ee8b4a8c5836b60bc2b673544a634.png",
+    "subnautica": "https://cdn.discordapp.com/app-icons/1402416999887278220/3ada80e2f8d7d86ec75587d8ba783756.png"
+}
+
+_game_icon_cache = {}
+
+
+def resolve_game_image(game_info, cfg):
+    """
+    Automatically resolves the best high-res game image:
+    1. Custom user override in config.json ('game_images') if it's a URL or custom asset
+    2. Steam Game: official Steam CDN header
+    3. Built-in Popular Games list (official Discord CDN verified icons)
+    4. Discord Detectable Applications API (covers 24,000+ PC games on Discord)
+    5. Config override fallback or None
+    """
+    if not game_info:
+        return None
+
+    game_name = game_info.get("name", "")
+    slug = game_info.get("slug", "").lower()
+    appid = game_info.get("steam_appid")
+    exe_name = game_info.get("exe_name") or ""
+    if exe_name:
+        exe_name = exe_name.lower()
+
+    game_images = cfg.get("game_images", {})
+    override = (
+        game_images.get(slug)
+        or game_images.get(game_name)
+        or (game_images.get(str(appid)) if appid else None)
+    )
+
+    # If user provided a specific direct URL or distinct custom asset
+    if override and (override.startswith("http://") or override.startswith("https://")):
+        return override
+
+    cache_key = str(appid) if appid else (exe_name or slug or game_name)
+    if cache_key in _game_icon_cache:
+        return _game_icon_cache[cache_key]
+
+    # Steam Game: auto Steam CDN banner
+    if appid:
+        url = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/header.jpg"
+        _game_icon_cache[cache_key] = url
+        return url
+
+    # Built-in Popular Games list (official Discord verified icons)
+    if slug in BUILTIN_GAME_ICONS:
+        url = BUILTIN_GAME_ICONS[slug]
+        _game_icon_cache[cache_key] = url
+        return url
+
+    # Dynamic Discord Detectable API lookup (covers 24,000+ games)
+    try:
+        resp = requests.get("https://discord.com/api/v9/applications/detectable", timeout=3.0)
+        if resp.status_code == 200:
+            for item in resp.json():
+                for exe in item.get("executables", []):
+                    ename = exe.get("name", "").lower()
+                    if ename and (ename == exe_name or ename.endswith("/" + exe_name) or ename.endswith("\\" + exe_name)):
+                        icon = item.get("icon_hash") or item.get("cover_image_hash")
+                        if icon:
+                            url = f"https://cdn.discordapp.com/app-icons/{item['id']}/{icon}.png"
+                            _game_icon_cache[cache_key] = url
+                            return url
+                if item.get("name", "").lower() == game_name.lower():
+                    icon = item.get("icon_hash") or item.get("cover_image_hash")
+                    if icon:
+                        url = f"https://cdn.discordapp.com/app-icons/{item['id']}/{icon}.png"
+                        _game_icon_cache[cache_key] = url
+                        return url
+    except Exception:
+        pass
+
+    # If user provided an asset key in config, return it
+    if override:
+        return override
 
     return None
 
@@ -612,19 +734,7 @@ def main():
                 game_info = current_screen.get("game_info")
                 if game_info:
                     game_name = game_info["name"]
-                    slug = game_info.get("slug", "").lower()
-                    appid = game_info.get("steam_appid")
-
-                    # Check config overrides first: by slug, exact name, or steam appid
-                    chosen_img = (
-                        game_images.get(slug)
-                        or game_images.get(game_name)
-                        or (game_images.get(str(appid)) if appid else None)
-                    )
-
-                    # For Steam games without custom override, auto-fetch official Steam header
-                    if not chosen_img and appid:
-                        chosen_img = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/header.jpg"
+                    chosen_img = resolve_game_image(game_info, cfg)
 
                     if chosen_img:
                         large_img = chosen_img
