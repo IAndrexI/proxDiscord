@@ -752,6 +752,7 @@ KNOWN_GAMES = {
 
 _steam_app_cache = {}
 GAME_DEBOUNCE_SECONDS = 25  # Grace period for game transitions, server changes, and loading screens
+_game_sessions = {}  # {game_name: {"start_time": float, "last_seen": float, "game_info": dict}}
 _game_tracker = {
     "current": None,
     "start_time": None,
@@ -760,12 +761,26 @@ _game_tracker = {
 }
 
 
-def detect_game_activity(cfg):
+def detect_active_games(cfg, max_games=3):
     """
-    Detects the active game on the PC via Steam RunningAppID and running processes snapshot.
-    Returns a dict with 'name', 'slug', 'steam_appid' or None.
+    Detects all currently running games on the PC up to max_games (default: 3).
+    Checks Steam RunningAppID, custom games, built-in games, and Discord detectable games database.
+    Returns a list of unique game dicts: [{'name': ..., 'slug': ..., 'steam_appid': ..., 'exe_name': ...}]
     """
     import re
+    detected = []
+    seen_names = set()
+
+    def add_game(name, slug, steam_appid=None, exe_name=None, discord_icon=None):
+        if name and name.lower() not in seen_names:
+            seen_names.add(name.lower())
+            detected.append({
+                "name": name,
+                "slug": slug,
+                "steam_appid": steam_appid,
+                "exe_name": exe_name,
+                "discord_icon": discord_icon
+            })
 
     # 1. Check Steam RunningAppID
     try:
@@ -776,50 +791,50 @@ def detect_game_activity(cfg):
 
         if running_appid and running_appid > 0:
             if running_appid in _steam_app_cache:
-                return _steam_app_cache[running_appid]
-
-            name = None
-            search_dirs = [os.path.join(steam_path, "steamapps")]
-            vdf_path = os.path.join(steam_path, "steamapps", "libraryfolders.vdf")
-            if os.path.exists(vdf_path):
-                try:
-                    with open(vdf_path, "r", encoding="utf-8", errors="ignore") as f:
-                        for match in re.finditer(r'"path"\s+"([^"]+)"', f.read()):
-                            lib_dir = os.path.join(match.group(1).replace("\\\\", "\\"), "steamapps")
-                            if os.path.exists(lib_dir) and lib_dir not in search_dirs:
-                                search_dirs.append(lib_dir)
-                except Exception:
-                    pass
-
-            for sdir in search_dirs:
-                mfile = os.path.join(sdir, f"appmanifest_{running_appid}.acf")
-                if os.path.exists(mfile):
+                add_game(**_steam_app_cache[running_appid])
+            else:
+                name = None
+                search_dirs = [os.path.join(steam_path, "steamapps")]
+                vdf_path = os.path.join(steam_path, "steamapps", "libraryfolders.vdf")
+                if os.path.exists(vdf_path):
                     try:
-                        with open(mfile, "r", encoding="utf-8", errors="ignore") as f:
-                            m = re.search(r'"name"\s+"([^"]+)"', f.read())
-                            if m:
-                                name = m.group(1)
-                                break
+                        with open(vdf_path, "r", encoding="utf-8", errors="ignore") as f:
+                            for match in re.finditer(r'"path"\s+"([^"]+)"', f.read()):
+                                lib_dir = os.path.join(match.group(1).replace("\\\\", "\\"), "steamapps")
+                                if os.path.exists(lib_dir) and lib_dir not in search_dirs:
+                                    search_dirs.append(lib_dir)
                     except Exception:
                         pass
 
-            if not name:
-                try:
-                    resp = requests.get(f"https://store.steampowered.com/api/appdetails?appids={running_appid}", timeout=2.0)
-                    if resp.status_code == 200:
-                        data = resp.json().get(str(running_appid), {})
-                        if data.get("success") and "data" in data:
-                            name = data["data"].get("name")
-                except Exception:
-                    pass
+                for sdir in search_dirs:
+                    mfile = os.path.join(sdir, f"appmanifest_{running_appid}.acf")
+                    if os.path.exists(mfile):
+                        try:
+                            with open(mfile, "r", encoding="utf-8", errors="ignore") as f:
+                                m = re.search(r'"name"\s+"([^"]+)"', f.read())
+                                if m:
+                                    name = m.group(1)
+                                    break
+                        except Exception:
+                            pass
 
-            if not name:
-                name = f"Steam Game ({running_appid})"
+                if not name:
+                    try:
+                        resp = requests.get(f"https://store.steampowered.com/api/appdetails?appids={running_appid}", timeout=2.0)
+                        if resp.status_code == 200:
+                            data = resp.json().get(str(running_appid), {})
+                            if data.get("success") and "data" in data:
+                                name = data["data"].get("name")
+                    except Exception:
+                        pass
 
-            slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
-            res = {"name": name, "slug": slug, "steam_appid": running_appid, "exe_name": None}
-            _steam_app_cache[running_appid] = res
-            return res
+                if not name:
+                    name = f"Steam Game ({running_appid})"
+
+                slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
+                g_dict = {"name": name, "slug": slug, "steam_appid": running_appid, "exe_name": None}
+                _steam_app_cache[running_appid] = g_dict
+                add_game(**g_dict)
     except Exception:
         pass
 
@@ -858,43 +873,53 @@ def detect_game_activity(cfg):
         # Check custom games from config
         custom_games = cfg.get("custom_games", {})
         for exe_name, c_info in custom_games.items():
+            if len(detected) >= max_games:
+                break
             if exe_name.lower() in procs:
                 if isinstance(c_info, dict):
                     name = c_info.get("name", exe_name)
                     slug = c_info.get("slug") or re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
-                    return {"name": name, "slug": slug, "steam_appid": c_info.get("steam_appid"), "exe_name": exe_name}
-                name = str(c_info)
-                slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
-                return {"name": name, "slug": slug, "steam_appid": None, "exe_name": exe_name}
+                    add_game(name, slug, steam_appid=c_info.get("steam_appid"), exe_name=exe_name)
+                else:
+                    name = str(c_info)
+                    slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
+                    add_game(name, slug, exe_name=exe_name)
 
         # Check known popular games
         for exe_name, g_info in KNOWN_GAMES.items():
+            if len(detected) >= max_games:
+                break
             if exe_name in procs:
                 if isinstance(g_info, tuple):
                     name, slug = g_info
                 else:
                     name = g_info
                     slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
-                return {"name": name, "slug": slug, "steam_appid": None, "exe_name": exe_name}
+                add_game(name, slug, exe_name=exe_name)
 
         # Check against comprehensive Discord games database (10,000+ PC games)
         if _discord_games_db:
             for exe in procs:
+                if len(detected) >= max_games:
+                    break
                 if exe in _discord_games_db:
                     g_meta = _discord_games_db[exe]
                     g_name = g_meta.get("name", exe)
                     slug = re.sub(r'[^a-z0-9_]', '', g_name.lower().replace(" ", "_"))
-                    return {
-                        "name": g_name,
-                        "slug": slug,
-                        "steam_appid": None,
-                        "exe_name": exe,
-                        "discord_icon": g_meta.get("icon")
-                    }
+                    add_game(g_name, slug, exe_name=exe, discord_icon=g_meta.get("icon"))
+
     except Exception:
         pass
 
-    return None
+    return detected[:max_games]
+
+
+def detect_game_activity(cfg):
+    """
+    Backwards-compatible helper returning the primary detected game.
+    """
+    games = detect_active_games(cfg, max_games=1)
+    return games[0] if games else None
 
 
 # Official Brand Logo CDNs
@@ -1144,42 +1169,56 @@ def main():
                         "state": state
                     })
 
-            # Screen 3: Current Game Activity (when enabled)
+            # Screen 3: Current Game Activity (Supports up to 3 separate screens for active games)
             if cfg.get("enable_game_activity", True):
                 now = time.time()
-                game_info = detect_game_activity(cfg)
-                if game_info:
-                    game = game_info["name"]
-                    if _game_tracker["current"] != game:
-                        _game_tracker["current"] = game
-                        _game_tracker["start_time"] = now
-                    _game_tracker["last_seen"] = now
-                    _game_tracker["last_game_info"] = game_info
-                    active_game = game_info
-                elif _game_tracker["current"] and (now - _game_tracker["last_seen"] < GAME_DEBOUNCE_SECONDS):
-                    # Grace period: keep game active during loading screens / server transitions
-                    active_game = _game_tracker["last_game_info"]
+                active_games = detect_active_games(cfg, max_games=3)
+
+                # Update multi-game tracking sessions
+                for g_info in active_games:
+                    g_name = g_info["name"]
+                    if g_name not in _game_sessions:
+                        _game_sessions[g_name] = {
+                            "start_time": now,
+                            "last_seen": now,
+                            "game_info": g_info
+                        }
+                    else:
+                        _game_sessions[g_name]["last_seen"] = now
+                        _game_sessions[g_name]["game_info"] = g_info
+
+                # Debounce / cleanup closed games
+                expired_games = [name for name, session in _game_sessions.items() if (now - session["last_seen"]) >= GAME_DEBOUNCE_SECONDS]
+                for name in expired_games:
+                    del _game_sessions[name]
+
+                # If games are active, add a separate screen for each game (up to 3)
+                if _game_sessions:
+                    first_game = list(_game_sessions.values())[0]
+                    _game_tracker["current"] = first_game["game_info"]["name"]
+                    _game_tracker["start_time"] = first_game["start_time"]
+
+                    for game_name, session in list(_game_sessions.items())[:3]:
+                        elapsed = format_uptime(now - session["start_time"])
+                        screens.append({
+                            "name": f"Game: {game_name}",
+                            "screen_type": "game",
+                            "details": f"🎮 {game_name}",
+                            "state": f"⏱️ Time Opened: {elapsed}",
+                            "game_info": session["game_info"],
+                            "start_time": session["start_time"]
+                        })
                 else:
                     _game_tracker["current"] = None
                     _game_tracker["start_time"] = None
-                    _game_tracker["last_game_info"] = None
-                    active_game = None
-
-                if active_game:
-                    game = active_game["name"]
-                    elapsed = format_uptime(now - _game_tracker["start_time"])
-                    details = f"🎮 {game}"
-                    state = f"⏱️ Time Opened: {elapsed}"
-                else:
-                    details = "🎮 Gaming: Standby"
-                    state = "No game currently open"
-
-                screens.append({
-                    "name": "Game Activity",
-                    "details": details,
-                    "state": state,
-                    "game_info": active_game
-                })
+                    screens.append({
+                        "name": "Game Activity",
+                        "screen_type": "game",
+                        "details": "🎮 Gaming: Standby",
+                        "state": "No game currently open",
+                        "game_info": None,
+                        "start_time": boot_time
+                    })
 
             # Screen 4: Optional Minecraft Screen (when enabled)
             if cfg.get("enable_minecraft_screen", False):
@@ -1245,7 +1284,9 @@ def main():
                 }
                 target_name = alias_map.get(active_mode, active_mode)
                 for s in screens:
-                    if s["name"].lower() == target_name.lower() or target_name.lower() in s["name"].lower():
+                    if (s["name"].lower() == target_name.lower() or 
+                        target_name.lower() in s["name"].lower() or 
+                        (target_name.lower() in ("game", "gaming") and s.get("screen_type") == "game")):
                         selected_screen = s
                         break
 
@@ -1282,7 +1323,7 @@ def main():
                 small_img = default_large
                 small_txt = "Protutech Cloud"
 
-            elif current_screen["name"] == "Game Activity":
+            elif current_screen.get("screen_type") == "game" or current_screen["name"].startswith("Game"):
                 game_info = current_screen.get("game_info")
                 if game_info:
                     game_name = game_info["name"]
@@ -1337,7 +1378,7 @@ def main():
                 small_img = default_large
                 small_txt = "Protutech Cloud"
 
-            game_start = int(_game_tracker["start_time"]) if (current_screen["name"] == "Game Activity" and _game_tracker.get("start_time")) else boot_time
+            game_start = int(current_screen.get("start_time", boot_time))
             activity_kwargs = {
                 "details": current_screen["details"],
                 "state": current_screen["state"],
@@ -1356,7 +1397,10 @@ def main():
                 if mc_info.get("online") and mc_info.get("players_max", 0) > 0:
                     activity_kwargs["party_size"] = [mc_info["players_online"], mc_info["players_max"]]
                     activity_kwargs["party_id"] = "minecraft_players"
-            elif cfg.get("show_party_badge", True) and stats["total_guests"] > 0 and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity", "Network Speed"):
+            elif (cfg.get("show_party_badge", True) 
+                  and stats["total_guests"] > 0 
+                  and current_screen.get("screen_type") != "game"
+                  and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity", "Network Speed")):
                 activity_kwargs["party_size"] = [stats["running_guests"], stats["total_guests"]]
                 activity_kwargs["party_id"] = "protutech_guests"
 
