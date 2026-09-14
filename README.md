@@ -1,61 +1,32 @@
-# Proxmox VE Discord Rich Presence (RPC)
+# proxDiscord
 
-Display real-time Proxmox VE server metrics directly on your Discord profile using Discord Rich Presence.
+Display live Proxmox VE server stats directly on your Discord profile using Discord Rich Presence.
 
-![Protutech Cloud Logo](protutech_cloud.jpg)
+<p align="center">
+  <img src="protutech_cloud.jpg" alt="Protutech Cloud Logo" width="220">
+</p>
 
 ## Features
-
-- 🔄 **Multi-Screen Rotation**: Automatically cycles between status screens every 15 seconds:
-  - **Screen 1 (Host Health & Performance)**: Live CPU %, RAM % (Used/Total), Uptime.
-  - **Screen 2 (Storage & Workloads)**: VM count, Container count, primary Storage Pool usage.
-  - **Screen 3 (Minecraft Server - Optional)**: Server status and address.
-- 👥 **Active Guests Counter Badge**: Displays a `(16 of 16)` badge next to your status showing active VMs and LXCs.
-- 🛡️ **Privacy First**: No public web links or exposed credentials; queries Proxmox locally over HTTPS.
-- 🚀 **Windows Auto-Start**: Includes 1-click startup scripts to run silently in the background on system boot.
-- 🔁 **Self-Healing Connection**: Automatically handles Discord restarts, PC wake/sleep, and network drops.
+- **Auto-Rotating Screens**: Cycles between CPU/RAM/Uptime and Storage/VMs/LXCs every 15 seconds.
+- **Active Guests Badge**: Shows a live `(16 of 16)` active guest count.
+- **Background Mode & Auto-Start**: Runs silently and starts with Windows on boot.
+- **Self-Healing**: Automatically reconnects if Discord or network restarts.
 
 ---
 
-## Getting Started
+## Quick Setup
 
-### 1. Requirements
-- Python 3.10+
-- Proxmox VE (7.x, 8.x, or 9.x)
-- Discord Desktop Client running on the machine
+### 1. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
 
-### 2. Installation
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/proxmox-discord-rpc.git
-   cd proxmox-discord-rpc
-   ```
-2. Create and activate a virtual environment:
-   ```bash
-   python -m venv .venv
-   .\.venv\Scripts\activate   # On Windows
-   # source .venv/bin/activate # On Linux/macOS
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-### 3. Create a Proxmox API Token
-1. Open your Proxmox Web GUI (`https://<proxmox-ip>:8006`).
-2. Navigate to **Datacenter** -> **Permissions** -> **API Tokens** -> click **Add**.
-3. Fill in:
-   - **User**: `root@pam` (or your monitoring user)
-   - **Token ID**: `discord-rpc`
-   - **Privilege Separation**: Unchecked (or ensure `PVEAuditor` permission).
-4. Save the generated **Token Secret** key.
-
-### 4. Configuration
+### 2. Configure
 Copy `config.example.json` to `config.json`:
 ```bash
 copy config.example.json config.json
 ```
-Edit `config.json` with your details:
+Fill in your Proxmox connection details and Discord Application ID in `config.json`:
 ```json
 {
   "discord_client_id": "YOUR_DISCORD_APPLICATION_ID",
@@ -66,31 +37,11 @@ Edit `config.json` with your details:
   "proxmox_token_secret": "YOUR_TOKEN_SECRET_HERE",
   "update_interval_seconds": 15,
   "large_image": "protutech",
-  "show_party_badge": true,
-  "enable_minecraft_screen": false,
-  "minecraft_server_address": "play.yourdomain.com:25565"
+  "show_party_badge": true
 }
 ```
 
-### 5. Discord Developer Portal Setup
-1. Go to [Discord Developer Portal](https://discord.com/developers/applications).
-2. Create an Application and copy the **Application ID** into `config.json`.
-3. Set the application name to whatever title you want displayed (e.g. `Homelabs` or `Proxmox VE`).
-4. In **Rich Presence** -> **Art Assets**, upload your logo with the asset key `protutech`.
-
----
-
-## Running the Application
-
-- **Interactive Mode**: Double-click `run.bat` or run:
-  ```powershell
-  .\run.bat
-  ```
-- **Silent Background Mode**: Double-click `run-background.vbs`.
-- **Run Automatically at Windows Boot**: Double-click `install_startup.bat`.
-- **Remove from Windows Boot**: Double-click `uninstall_startup.bat`.
-
----
-
-## License
-MIT License
+### 3. Run
+- **Interactive**: Double-click `run.bat`
+- **Background (Silent)**: Double-click `run-background.vbs`
+- **Start with Windows**: Double-click `install_startup.bat`
