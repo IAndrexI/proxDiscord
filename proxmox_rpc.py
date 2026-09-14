@@ -45,6 +45,16 @@ def load_config():
         return json.load(f)
 
 
+DISCORD_GAMES_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "discord_games_db.json")
+_discord_games_db = {}
+if os.path.exists(DISCORD_GAMES_DB_PATH):
+    try:
+        with open(DISCORD_GAMES_DB_PATH, "r", encoding="utf-8") as f:
+            _discord_games_db = json.load(f)
+    except Exception as e:
+        print(f"[WARN] Failed to load discord_games_db.json: {e}", flush=True)
+
+
 def format_uptime(seconds):
     days, rem = divmod(int(seconds), 86400)
     hours, rem = divmod(rem, 3600)
@@ -53,7 +63,32 @@ def format_uptime(seconds):
         return f"{days}d {hours}h"
     elif hours > 0:
         return f"{hours}h {minutes}m"
-    return f"{minutes}m"
+    elif minutes > 0:
+        return f"{minutes}m"
+    return "< 1m"
+
+
+_cached_proxmox_stats = None
+_cached_proxmox_time = 0.0
+PROXMOX_CACHE_TTL = 18.0  # seconds (one full 3-screen cycle at 6s interval)
+
+
+def get_cached_proxmox_stats(cfg, force=False):
+    """
+    Returns cached Proxmox stats to eliminate network lag on non-Proxmox screens.
+    Fetches fresh stats every PROXMOX_CACHE_TTL seconds or when force=True.
+    """
+    global _cached_proxmox_stats, _cached_proxmox_time
+    now = time.time()
+    if force or _cached_proxmox_stats is None or (now - _cached_proxmox_time) >= PROXMOX_CACHE_TTL:
+        try:
+            _cached_proxmox_stats = fetch_proxmox_stats(cfg)
+            _cached_proxmox_time = now
+        except Exception:
+            if _cached_proxmox_stats is not None:
+                return _cached_proxmox_stats
+            raise
+    return _cached_proxmox_stats
 
 
 def fetch_proxmox_stats(cfg):
@@ -328,7 +363,13 @@ KNOWN_GAMES = {
 }
 
 _steam_app_cache = {}
-_game_tracker = {"current": None, "start_time": None}
+GAME_DEBOUNCE_SECONDS = 25  # Grace period for game transitions, server changes, and loading screens
+_game_tracker = {
+    "current": None,
+    "start_time": None,
+    "last_seen": 0.0,
+    "last_game_info": None
+}
 
 
 def detect_game_activity(cfg):
@@ -447,6 +488,21 @@ def detect_game_activity(cfg):
                     name = g_info
                     slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
                 return {"name": name, "slug": slug, "steam_appid": None, "exe_name": exe_name}
+
+        # Check against comprehensive Discord games database (10,000+ PC games)
+        if _discord_games_db:
+            for exe in procs:
+                if exe in _discord_games_db:
+                    g_meta = _discord_games_db[exe]
+                    g_name = g_meta.get("name", exe)
+                    slug = re.sub(r'[^a-z0-9_]', '', g_name.lower().replace(" ", "_"))
+                    return {
+                        "name": g_name,
+                        "slug": slug,
+                        "steam_appid": None,
+                        "exe_name": exe,
+                        "discord_icon": g_meta.get("icon")
+                    }
     except Exception:
         pass
 
@@ -552,6 +608,18 @@ def resolve_game_image(game_info, cfg):
         _game_icon_cache[cache_key] = url
         return url
 
+    # Official Discord icon from database
+    if game_info.get("discord_icon"):
+        _game_icon_cache[cache_key] = game_info["discord_icon"]
+        return game_info["discord_icon"]
+
+    # Check indexed local Discord games DB
+    if exe_name and _discord_games_db and exe_name in _discord_games_db:
+        icon_url = _discord_games_db[exe_name].get("icon")
+        if icon_url:
+            _game_icon_cache[cache_key] = icon_url
+            return icon_url
+
     # Dynamic Discord Detectable API lookup (covers 24,000+ games)
     try:
         resp = requests.get("https://discord.com/api/v9/applications/detectable", timeout=3.0)
@@ -629,7 +697,8 @@ def main():
 
         # 2. Fetch stats and construct screen
         try:
-            stats = fetch_proxmox_stats(cfg)
+            is_screen_one = (screen_index % 3 == 0)
+            stats = get_cached_proxmox_stats(cfg, force=is_screen_one)
             label = cfg.get("server_label", "Homelabs")
 
             # Build list of active screens
@@ -675,18 +744,31 @@ def main():
 
             # Screen 3: Current Game Activity (when enabled)
             if cfg.get("enable_game_activity", True):
+                now = time.time()
                 game_info = detect_game_activity(cfg)
                 if game_info:
                     game = game_info["name"]
-                    details = f"🎮 Playing: {game}"
                     if _game_tracker["current"] != game:
                         _game_tracker["current"] = game
-                        _game_tracker["start_time"] = time.time()
-                    elapsed = format_uptime(time.time() - _game_tracker["start_time"])
-                    state = f"⏱️ Session: {elapsed} | Active on PC"
+                        _game_tracker["start_time"] = now
+                    _game_tracker["last_seen"] = now
+                    _game_tracker["last_game_info"] = game_info
+                    active_game = game_info
+                elif _game_tracker["current"] and (now - _game_tracker["last_seen"] < GAME_DEBOUNCE_SECONDS):
+                    # Grace period: keep game active during loading screens / server transitions
+                    active_game = _game_tracker["last_game_info"]
                 else:
                     _game_tracker["current"] = None
                     _game_tracker["start_time"] = None
+                    _game_tracker["last_game_info"] = None
+                    active_game = None
+
+                if active_game:
+                    game = active_game["name"]
+                    elapsed = format_uptime(now - _game_tracker["start_time"])
+                    details = f"🎮 Playing: {game}"
+                    state = f"⏱️ Session: {elapsed} | Active on PC"
+                else:
                     details = "🎮 Gaming: Standby"
                     state = "No game currently running"
 
@@ -694,7 +776,7 @@ def main():
                     "name": "Game Activity",
                     "details": details,
                     "state": state,
-                    "game_info": game_info
+                    "game_info": active_game
                 })
 
             # Screen 4: Optional Minecraft Screen (when enabled)
@@ -768,12 +850,13 @@ def main():
                     large_img = default_large
                     large_txt = "Protutech Cloud | Minecraft"
 
+            game_start = int(_game_tracker["start_time"]) if (current_screen["name"] == "Game Activity" and _game_tracker.get("start_time")) else boot_time
             activity_kwargs = {
                 "details": current_screen["details"],
                 "state": current_screen["state"],
                 "large_image": large_img,
                 "large_text": large_txt,
-                "start": boot_time
+                "start": game_start
             }
             if small_img:
                 activity_kwargs["small_image"] = small_img
