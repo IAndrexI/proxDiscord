@@ -45,3 +45,4 @@ Fill in your Proxmox connection details and Discord Application ID in `config.js
 - **Interactive**: Double-click `run.bat`
 - **Background (Silent)**: Double-click `run-background.vbs`
 - **Start with Windows**: Double-click `install_startup.bat`
+- **Remove from Windows Startup**: Double-click `uninstall_startup.bat`
