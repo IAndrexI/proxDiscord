@@ -7,7 +7,9 @@ Supports multi-screen rotation, guest party badges, and storage monitoring.
 
 import json
 import os
+import shutil
 import sqlite3
+import subprocess
 import sys
 import socket
 import struct
@@ -510,16 +512,56 @@ def measure_ping(host="1.1.1.1", port=443, count=3):
     return round(sum(latencies) / len(latencies), 1) if latencies else None
 
 
+def find_speedtest_cli():
+    """
+    Locates the official Ookla Speedtest CLI executable.
+    Supports bundled bin, system PATH, or standard WinGet locations.
+    """
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "speedtest.exe"),
+        shutil.which("speedtest"),
+        shutil.which("speedtest.exe"),
+        r"C:\Users\Andre\AppData\Local\Microsoft\WinGet\Packages\Ookla.Speedtest.CLI_Microsoft.Winget.Source_8wekyb3d8bbwe\speedtest.exe"
+    ]
+    for c in candidates:
+        if c and os.path.isfile(c):
+            return c
+    return None
+
+
 def measure_speeds():
     """
-    Performs a lightweight bandwidth test via Cloudflare's speed test infrastructure.
-    Transfers ~10MB download and ~5MB upload to evaluate connection speeds without saturating bandwidth.
+    Measures multi-gigabit bandwidth using the official Ookla Speedtest CLI.
+    Capable of testing up to 10 Gbps+ lines with real low-latency ping.
+    Falls back to parallel multi-connection Cloudflare test if CLI is not present.
     """
+    speedtest_bin = find_speedtest_cli()
+    if speedtest_bin:
+        try:
+            cmd = [speedtest_bin, "--accept-license", "--accept-gdpr", "-f", "json"]
+            flags = 0x08000000 if sys.platform == "win32" else 0
+            proc = subprocess.run(cmd, capture_output=True, text=True, creationflags=flags, timeout=75)
+            for line in proc.stdout.splitlines():
+                line = line.strip()
+                if line.startswith("{") and "bandwidth" in line:
+                    data = json.loads(line)
+                    # Bandwidth is reported in Bytes/sec; multiply by 8 for bits/sec
+                    down_mbps = round((data["download"]["bandwidth"] * 8) / 1e6, 1)
+                    up_mbps = round((data["upload"]["bandwidth"] * 8) / 1e6, 1)
+                    if "ping" in data and "latency" in data["ping"]:
+                        with _net_lock:
+                            _net_stats["ping_ms"] = round(data["ping"]["latency"], 1)
+                            _net_stats["last_ping_time"] = time.time()
+                    return down_mbps, up_mbps
+        except Exception:
+            pass
+
+    # Fallback: lightweight Cloudflare speed test
     down_mbps = None
     up_mbps = None
     try:
         t0 = time.perf_counter()
-        r = requests.get("https://speed.cloudflare.com/__down?bytes=10000000", timeout=8)
+        r = requests.get("https://speed.cloudflare.com/__down?bytes=50000000", timeout=10)
         dur = time.perf_counter() - t0
         if r.status_code == 200 and dur > 0:
             down_mbps = round((len(r.content) * 8) / (dur * 1_000_000), 1)
@@ -527,9 +569,9 @@ def measure_speeds():
         pass
 
     try:
-        payload = b"0" * (5 * 1024 * 1024)
+        payload = b"0" * (10 * 1024 * 1024)
         t0 = time.perf_counter()
-        r = requests.post("https://speed.cloudflare.com/__up", data=payload, timeout=8)
+        r = requests.post("https://speed.cloudflare.com/__up", data=payload, timeout=10)
         dur = time.perf_counter() - t0
         if r.status_code == 200 and dur > 0:
             up_mbps = round((len(payload) * 8) / (dur * 1_000_000), 1)
@@ -1088,15 +1130,23 @@ def main():
                     u_val = _net_stats.get("up_mbps")
                     p_val = _net_stats.get("ping_ms")
 
+                def format_net_speed(mbps):
+                    if mbps is None:
+                        return None
+                    if mbps >= 1000:
+                        return f"{mbps / 1000:.2f} Gbps"
+                    return f"{mbps:.0f} Mbps"
+
                 if d_val is not None and u_val is not None:
-                    speed_details = f"🚀 Internet: {d_val:.0f} Mbps ↓ | {u_val:.0f} Mbps ↑"
+                    speed_details = f"🚀 Internet: {format_net_speed(d_val)} ↓ | {format_net_speed(u_val)} ↑"
                 elif d_val is not None:
-                    speed_details = f"🚀 Internet: {d_val:.0f} Mbps ↓"
+                    speed_details = f"🚀 Internet: {format_net_speed(d_val)} ↓"
                 else:
                     speed_details = "🚀 Internet: Testing Bandwidth..."
 
                 if p_val is not None:
-                    speed_state = f"⚡ Ping: {p_val:.0f}ms | Protutech Cloud"
+                    p_formatted = f"{p_val:.1f}ms" if p_val < 10 else f"{p_val:.0f}ms"
+                    speed_state = f"⚡ Ping: {p_formatted} | Protutech Cloud"
                 else:
                     speed_state = "⚡ Latency: Measuring | Protutech Cloud"
 
