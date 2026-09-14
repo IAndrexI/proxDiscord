@@ -19,5 +19,6 @@
     "kryptex": "kryptex"
   },
   "enable_minecraft_screen": true,
-  "minecraft_server_address": "minecraft.yourdomain.com"
+  "minecraft_server_address": "minecraft.yourdomain.com",
+  "show_minecraft_address": false
 }

@@ -377,18 +377,20 @@ def _ping_minecraft_slp(host, port=25565, timeout=2.0):
         return {"error": str(e)}
 
 
-def fetch_minecraft_status(server_addr, pve_mc_status="Offline"):
+def fetch_minecraft_status(server_addr, pve_mc_status="Offline", show_address=False):
     """
     Strictly verifies if the actual Minecraft server is running and accepting connections.
     1. Direct SLP ping to configured server address (over TCP)
     2. Fallback to public status API (api.mcstatus.io)
     3. Fallback to local container/host LAN endpoints (192.168.0.246 / 192.168.0.2)
     4. Only returns online=True if a live Minecraft instance answers with valid status.
+    5. Hides server IP/domain when show_address is False for privacy.
     """
     now = time.time()
     clean_addr = (server_addr or "minecraft.protutech.vip").strip()
-    if clean_addr in _mc_status_cache and (now - _mc_status_time.get(clean_addr, 0)) < MC_CACHE_TTL:
-        return _mc_status_cache[clean_addr]
+    cache_key = f"{clean_addr}_{show_address}"
+    if cache_key in _mc_status_cache and (now - _mc_status_time.get(cache_key, 0)) < MC_CACHE_TTL:
+        return _mc_status_cache[cache_key]
 
     host = clean_addr
     port = 25565
@@ -419,16 +421,17 @@ def fetch_minecraft_status(server_addr, pve_mc_status="Offline"):
             ver = ver_raw.replace("Requires MC ", "").split()[0] if ver_raw else ""
             ver_str = f" | v{ver}" if ver else ""
 
+            addr_label = f"🌐 {clean_addr}" if show_address else "🎮 Protutech Cloud"
             res = {
                 "online": True,
                 "players_online": online_p,
                 "players_max": max_p,
                 "version": ver,
                 "details": f"⛏️ Minecraft: Online ({online_p}/{max_p} Online)",
-                "state": f"🌐 {clean_addr}{ver_str}"
+                "state": f"{addr_label}{ver_str}"
             }
-            _mc_status_cache[clean_addr] = res
-            _mc_status_time[clean_addr] = now
+            _mc_status_cache[cache_key] = res
+            _mc_status_time[cache_key] = now
             return res
 
     # 2. Public API verification (api.mcstatus.io)
@@ -443,33 +446,35 @@ def fetch_minecraft_status(server_addr, pve_mc_status="Offline"):
                 max_p = players.get("max", 0)
                 ver_name = data.get("version", {}).get("name_clean", "")
                 ver_str = f" | {ver_name}" if ver_name else ""
+                addr_label = f"🌐 {clean_addr}" if show_address else "🎮 Protutech Cloud"
                 res = {
                     "online": True,
                     "players_online": online_p,
                     "players_max": max_p,
                     "version": ver_name,
                     "details": f"⛏️ Minecraft: Online ({online_p}/{max_p} Online)",
-                    "state": f"🌐 {clean_addr}{ver_str}"
+                    "state": f"{addr_label}{ver_str}"
                 }
-                _mc_status_cache[clean_addr] = res
-                _mc_status_time[clean_addr] = now
+                _mc_status_cache[cache_key] = res
+                _mc_status_time[cache_key] = now
                 return res
     except Exception:
         pass
 
     # 3. Server is truly offline (no Minecraft process responding)
     stopped_desc = "Server Stopped" if pve_mc_status == "Online" else "Host Offline"
+    state_str = f"🌐 {clean_addr} | {stopped_desc}" if show_address else f"Protutech Cloud | {stopped_desc}"
     res = {
         "online": False,
         "players_online": 0,
         "players_max": 0,
         "version": "",
         "details": "⛏️ Minecraft Server: Offline",
-        "state": f"🌐 {clean_addr} | {stopped_desc}"
+        "state": state_str
     }
 
-    _mc_status_cache[clean_addr] = res
-    _mc_status_time[clean_addr] = now
+    _mc_status_cache[cache_key] = res
+    _mc_status_time[cache_key] = now
     return res
 
 
@@ -952,7 +957,8 @@ def main():
             # Screen 4: Optional Minecraft Screen (when enabled)
             if cfg.get("enable_minecraft_screen", False):
                 mc_addr = cfg.get("minecraft_server_address", "minecraft.protutech.vip")
-                mc_status = fetch_minecraft_status(mc_addr, pve_mc_status=stats.get("mc_status", "Offline"))
+                show_mc_addr = cfg.get("show_minecraft_address", False)
+                mc_status = fetch_minecraft_status(mc_addr, pve_mc_status=stats.get("mc_status", "Offline"), show_address=show_mc_addr)
                 screens.append({
                     "name": "Minecraft",
                     "details": mc_status["details"],
@@ -1023,11 +1029,13 @@ def main():
                     large_img = BUILTIN_GAME_ICONS.get("minecraft", default_large)
 
                 mc_addr = cfg.get("minecraft_server_address", "minecraft.protutech.vip")
+                show_mc_addr = cfg.get("show_minecraft_address", False)
                 mc_info = current_screen.get("mc_status", {})
+                suffix = f" | {mc_addr}" if show_mc_addr else " | Protutech Cloud"
                 if mc_info.get("online"):
-                    large_txt = f"Minecraft: Online | {mc_addr}"
+                    large_txt = f"Minecraft: Online{suffix}"
                 else:
-                    large_txt = f"Minecraft: Offline | {mc_addr}"
+                    large_txt = f"Minecraft: Offline{suffix}"
                 small_img = default_large
                 small_txt = "Protutech Cloud"
 
