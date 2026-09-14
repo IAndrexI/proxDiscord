@@ -305,17 +305,26 @@ def main():
             if cfg.get("enable_kryptex_screen", True):
                 k_stats = fetch_kryptex_stats(cfg)
                 if k_stats:
-                    bal_str = f"💰 ${k_stats['balance']:.2f}" if k_stats.get("balance") is not None else ""
+                    show_bal = cfg.get("show_kryptex_balance", False)
+                    show_gpu = cfg.get("show_kryptex_gpu", False)
+
+                    bal_str = f" | 💰 ${k_stats['balance']:.2f}" if (show_bal and k_stats.get("balance") is not None) else ""
                     if k_stats["mining"]:
-                        gpu = k_stats.get("gpu")
+                        gpu = k_stats.get("gpu") if show_gpu else None
                         cpu = k_stats.get("cpu")
-                        temp_str = f" ({gpu['temp']}°C)" if gpu and gpu.get("temp") else ""
-                        gpu_part = f"🎮 {gpu['name'].replace('NVIDIA GeForce ', '')}: {gpu['hashrate']}{temp_str}" if gpu else ""
-                        cpu_part = f"💻 CPU: {cpu['hashrate']}" if cpu else ""
-                        details = f"⛏️ Kryptex: Mining | {bal_str}".strip(" |")
-                        state = " | ".join([p for p in [gpu_part, cpu_part] if p]) or "Mining active"
+
+                        details = f"⛏️ Kryptex: Mining{bal_str}"
+                        parts = []
+                        if gpu:
+                            temp_str = f" ({gpu['temp']}°C)" if gpu.get("temp") else ""
+                            parts.append(f"🎮 {gpu['name'].replace('NVIDIA GeForce ', '')}: {gpu['hashrate']}{temp_str}")
+                        if cpu:
+                            coin_suffix = f" ({cpu['coin']})" if cpu.get("coin") else ""
+                            parts.append(f"💻 CPU: {cpu['hashrate']}{coin_suffix}")
+
+                        state = " | ".join(parts) if parts else "Mining active"
                     else:
-                        details = f"⛏️ Kryptex: Idle | {bal_str}".strip(" |")
+                        details = f"⛏️ Kryptex: Idle{bal_str}"
                         state = "Miner paused / standby"
 
                     screens.append({

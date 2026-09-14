@@ -9,6 +9,8 @@
   "large_image": "protutech",
   "show_party_badge": true,
   "enable_kryptex_screen": true,
+  "show_kryptex_gpu": false,
+  "show_kryptex_balance": false,
   "enable_minecraft_screen": false,
   "minecraft_server_address": "play.yourdomain.com:25565"
 }
