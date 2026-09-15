@@ -7,6 +7,7 @@ Supports multi-screen rotation, guest party badges, and storage monitoring.
 
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -692,6 +693,188 @@ def start_net_worker_if_needed(cfg):
         t.start()
 
 
+# Steam Profile Integration & Caching
+_steam_worker_started = False
+_steam_lock = threading.Lock()
+_cached_steam_stats = None
+STEAM_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "steam_cache.json")
+
+
+def load_steam_cache():
+    if os.path.exists(STEAM_CACHE_FILE):
+        try:
+            with open(STEAM_CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+
+def save_steam_cache(data):
+    try:
+        with open(STEAM_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+
+def get_local_steam_id64():
+    """
+    Auto-detect active Steam user SteamID64 from Windows registry or config files.
+    """
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam\ActiveProcess") as key:
+            active_user, _ = winreg.QueryValueEx(key, "ActiveUser")
+            if active_user and active_user > 0:
+                return str(76561197960265728 + active_user)
+    except Exception:
+        pass
+
+    for steam_dir in [r"C:\Program Files (x86)\Steam", r"C:\Program Files\Steam"]:
+        vdf_path = os.path.join(steam_dir, "config", "loginusers.vdf")
+        if os.path.exists(vdf_path):
+            try:
+                with open(vdf_path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                auto_m = re.search(r'"(\d{17})"\s*\{[^}]*"AutoLogin"\s*"1"', content, re.DOTALL)
+                if auto_m:
+                    return auto_m.group(1)
+                all_ids = re.findall(r'"(7656\d{13})"', content)
+                if all_ids:
+                    return all_ids[0]
+            except Exception:
+                pass
+    return None
+
+
+def fetch_steam_profile(steam_id=None):
+    """
+    Fetch public Steam profile details: avatar, persona name, level, games count, and items count.
+    """
+    sid = str(steam_id).strip() if steam_id else get_local_steam_id64()
+    if not sid:
+        return None
+
+    persona = "Steam User"
+    avatar_url = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/steam.png"
+    level = "0"
+    games_count = "0"
+    items_count = "0"
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
+    }
+
+    # 1. XML endpoint
+    try:
+        xml_url = f"https://steamcommunity.com/profiles/{sid}/?xml=1"
+        resp = requests.get(xml_url, headers=headers, timeout=5.0)
+        if resp.status_code == 200:
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(resp.content)
+            p_elem = root.find("steamID")
+            if p_elem is not None and p_elem.text:
+                persona = p_elem.text
+
+            a_elem = root.find("avatarFull")
+            if a_elem is None:
+                a_elem = root.find("avatarMedium")
+            if a_elem is None:
+                a_elem = root.find("avatarIcon")
+            if a_elem is not None and a_elem.text:
+                avatar_url = a_elem.text
+    except Exception:
+        pass
+
+    # 2. HTML endpoint for stats
+    try:
+        profile_url = f"https://steamcommunity.com/profiles/{sid}/"
+        resp = requests.get(profile_url, headers=headers, timeout=5.0)
+        if resp.status_code == 200:
+            html = resp.text
+            lvl_m = re.search(r'friendPlayerLevelNum">(\d+)</span>', html)
+            if lvl_m:
+                level = lvl_m.group(1)
+
+            gm = re.search(r'href="[^"]*/games[/?][^"]*".*?<span class="profile_count_link_total">\s*([\d,]+)\s*</span>', html, re.DOTALL | re.IGNORECASE)
+            if not gm:
+                gm = re.search(r'<div class="value">\s*([\d,]+)\s*</div>\s*<div class="label">\s*Games\s*</div>', html, re.DOTALL | re.IGNORECASE)
+            if not gm:
+                gm = re.search(r'Games.*?<span class="profile_count_link_total">\s*([\d,]+)\s*</span>', html, re.DOTALL | re.IGNORECASE)
+            if gm:
+                games_count = gm.group(1).strip()
+
+            itm = re.search(r'<div class="value">\s*([\d,]+)\s*</div>\s*<div class="label">\s*Items Owned\s*</div>', html, re.DOTALL | re.IGNORECASE)
+            if not itm:
+                itm = re.search(r'href="[^"]*/inventory[/?][^"]*".*?<span class="profile_count_link_total">\s*([\d,]+)\s*</span>', html, re.DOTALL | re.IGNORECASE)
+            if itm:
+                items_count = itm.group(1).strip()
+    except Exception:
+        pass
+
+    return {
+        "steam_id": sid,
+        "persona": persona,
+        "avatar_url": avatar_url,
+        "level": level,
+        "games": games_count,
+        "items": items_count,
+        "last_updated": time.time()
+    }
+
+
+def _steam_stats_worker():
+    while True:
+        try:
+            cfg = load_config()
+            if cfg.get("enable_steam_screen", True):
+                interval_min = float(cfg.get("steam_cache_minutes", 15))
+                sid = cfg.get("steam_id") or None
+                res = fetch_steam_profile(sid)
+                if res:
+                    with _steam_lock:
+                        global _cached_steam_stats
+                        _cached_steam_stats = res
+                    save_steam_cache(res)
+                time.sleep(interval_min * 60)
+            else:
+                time.sleep(30)
+        except Exception:
+            time.sleep(60)
+
+
+def start_steam_worker_if_needed(cfg):
+    global _steam_worker_started
+    if cfg.get("enable_steam_screen", True) and not _steam_worker_started:
+        _steam_worker_started = True
+        t = threading.Thread(target=_steam_stats_worker, daemon=True)
+        t.start()
+
+
+def get_cached_steam_stats(cfg):
+    global _cached_steam_stats
+    with _steam_lock:
+        if _cached_steam_stats is not None:
+            return _cached_steam_stats
+
+    cached = load_steam_cache()
+    if cached:
+        with _steam_lock:
+            _cached_steam_stats = cached
+        return cached
+
+    sid = cfg.get("steam_id") or None
+    fresh = fetch_steam_profile(sid)
+    if fresh:
+        with _steam_lock:
+            _cached_steam_stats = fresh
+        save_steam_cache(fresh)
+        return fresh
+    return None
+
+
 KNOWN_GAMES = {
     "robloxplayerbeta.exe": ("Roblox", "roblox"),
     "robloxplayer.exe": ("Roblox", "roblox"),
@@ -927,6 +1110,7 @@ DEFAULT_PROXMOX_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/pn
 DEFAULT_KRYPTEX_ICON = "https://www.kryptex.com/static/v2/favicons/android-chrome-512x512.aba2291aca42.png"
 DEFAULT_CLOUDFLARE_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/cloudflare.png"
 DEFAULT_SPEED_ICON = DEFAULT_CLOUDFLARE_ICON
+DEFAULT_STEAM_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/steam.png"
 
 # Built-in official Discord CDN application icons for instant zero-latency image matching
 BUILTIN_GAME_ICONS = {
@@ -935,6 +1119,7 @@ BUILTIN_GAME_ICONS = {
     "cloudflare": DEFAULT_CLOUDFLARE_ICON,
     "speed": DEFAULT_SPEED_ICON,
     "speedtest": DEFAULT_SPEED_ICON,
+    "steam": DEFAULT_STEAM_ICON,
     "roblox": "https://cdn.discordapp.com/app-icons/363445589247131668/f2b60e350a2097289b3b0b877495e55f.png",
     "minecraft": "https://cdn.discordapp.com/app-icons/1402418491272986635/166fbad351ecdd02d11a3b464748f66b.png",
     "valorant": "https://cdn.discordapp.com/app-icons/700136079562375258/11f81959f4fdd76ca6c39c59eac256c1.png",
@@ -1261,6 +1446,19 @@ def main():
                     "state": speed_state
                 })
 
+            # Screen 6: Steam Profile (when enabled)
+            if cfg.get("enable_steam_screen", True):
+                start_steam_worker_if_needed(cfg)
+                steam_data = get_cached_steam_stats(cfg)
+                if steam_data:
+                    screens.append({
+                        "name": "Steam Profile",
+                        "screen_type": "steam",
+                        "details": f"Steam: {steam_data['persona']} | Level {steam_data['level']}",
+                        "state": f"{steam_data['games']} Games | {steam_data['items']} Items",
+                        "steam_data": steam_data
+                    })
+
             # Screen Selection: Manual lock or timed rotation
             active_mode = str(cfg.get("active_screen", "rotate")).strip().lower()
             selected_screen = None
@@ -1280,7 +1478,9 @@ def main():
                     "speed": "Network Speed",
                     "network": "Network Speed",
                     "internet": "Network Speed",
-                    "ping": "Network Speed"
+                    "ping": "Network Speed",
+                    "steam": "Steam Profile",
+                    "steamprofile": "Steam Profile"
                 }
                 target_name = alias_map.get(active_mode, active_mode)
                 for s in screens:
@@ -1378,6 +1578,20 @@ def main():
                 small_img = default_large
                 small_txt = "Protutech Cloud"
 
+            elif current_screen["name"] == "Steam Profile":
+                s_data = current_screen.get("steam_data", {})
+                s_avatar = s_data.get("avatar_url")
+                if s_avatar and (s_avatar.startswith("http://") or s_avatar.startswith("https://")):
+                    large_img = s_avatar
+                else:
+                    large_img = BUILTIN_GAME_ICONS.get("steam", default_large)
+
+                persona = s_data.get("persona", "Steam User")
+                level = s_data.get("level", "0")
+                large_txt = f"{persona} | Level {level}"
+                small_img = DEFAULT_STEAM_ICON
+                small_txt = "Steam | Protutech Cloud"
+
             game_start = int(current_screen.get("start_time", boot_time))
             activity_kwargs = {
                 "details": current_screen["details"],
@@ -1400,7 +1614,7 @@ def main():
             elif (cfg.get("show_party_badge", True) 
                   and stats["total_guests"] > 0 
                   and current_screen.get("screen_type") != "game"
-                  and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity", "Network Speed")):
+                  and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity", "Network Speed", "Steam Profile")):
                 activity_kwargs["party_size"] = [stats["running_guests"], stats["total_guests"]]
                 activity_kwargs["party_id"] = "protutech_guests"
 

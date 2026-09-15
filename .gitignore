@@ -21,3 +21,4 @@ bin/
 
 # Cache
 speed_cache.json
+steam_cache.json
