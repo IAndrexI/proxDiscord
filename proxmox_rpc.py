@@ -433,13 +433,13 @@ def _query_minecraft_status(server_addr, pve_mc_status="Offline", show_address=F
             ver = ver_raw.replace("Requires MC ", "").split()[0] if ver_raw else ""
             ver_str = f" | v{ver}" if ver else ""
 
-            addr_label = f"🌐 {clean_addr}" if show_address else "🎮 Protutech Cloud"
+            addr_label = clean_addr if show_address else "Protutech Cloud"
             return {
                 "online": True,
                 "players_online": online_p,
                 "players_max": max_p,
                 "version": ver,
-                "details": f"⛏️ Minecraft: Online ({online_p}/{max_p} Online)",
+                "details": f"Minecraft Server: Online ({online_p}/{max_p})",
                 "state": f"{addr_label}{ver_str}"
             }
 
@@ -455,13 +455,13 @@ def _query_minecraft_status(server_addr, pve_mc_status="Offline", show_address=F
                 max_p = players.get("max", 0)
                 ver_name = data.get("version", {}).get("name_clean", "")
                 ver_str = f" | {ver_name}" if ver_name else ""
-                addr_label = f"🌐 {clean_addr}" if show_address else "🎮 Protutech Cloud"
+                addr_label = clean_addr if show_address else "Protutech Cloud"
                 return {
                     "online": True,
                     "players_online": online_p,
                     "players_max": max_p,
                     "version": ver_name,
-                    "details": f"⛏️ Minecraft: Online ({online_p}/{max_p} Online)",
+                    "details": f"Minecraft Server: Online ({online_p}/{max_p})",
                     "state": f"{addr_label}{ver_str}"
                 }
     except Exception:
@@ -469,13 +469,13 @@ def _query_minecraft_status(server_addr, pve_mc_status="Offline", show_address=F
 
     # 3. Server offline
     stopped_desc = "Server Stopped" if pve_mc_status == "Online" else "Host Offline"
-    state_str = f"🌐 {clean_addr} | {stopped_desc}" if show_address else f"Protutech Cloud | {stopped_desc}"
+    state_str = f"{clean_addr} | {stopped_desc}" if show_address else f"Protutech Cloud | {stopped_desc}"
     return {
         "online": False,
         "players_online": 0,
         "players_max": 0,
         "version": "",
-        "details": "⛏️ Minecraft Server: Offline",
+        "details": "Minecraft Server: Offline",
         "state": state_str
     }
 
@@ -1134,8 +1134,8 @@ def main():
             node_tag = f"{label}: {node_name}" if label.lower() != node_name.lower() else label
             screens.append({
                 "name": "Proxmox Overview",
-                "details": f"🟢 {node_tag} (Up: {stats['uptime']}) | 🖥️ {stats['running_vms']} VMs | 📦 {stats['running_lxcs']} LXCs",
-                "state": f"💻 CPU: {stats['cpu_pct']:.1f}% | 🧠 RAM: {stats['mem_pct']:.0f}% | 💾 Storage: {stats['storage_used_gb']:.0f}G/{stats['storage_total_tb']:.1f}TB"
+                "details": f"{node_tag} (Up: {stats['uptime']}) | {stats['running_vms']} VMs | {stats['running_lxcs']} LXCs",
+                "state": f"CPU: {stats['cpu_pct']:.1f}% | RAM: {stats['mem_pct']:.0f}% | Storage: {stats['storage_used_gb']:.0f}G/{stats['storage_total_tb']:.1f}TB"
             })
 
             # Screen 2: Cryptocurrency Mining Status (when enabled)
@@ -1146,22 +1146,22 @@ def main():
                     show_gpu = cfg.get("show_kryptex_gpu", True)
                     show_cpu = cfg.get("show_kryptex_cpu", True)
 
-                    bal_str = f" | 💰 ${k_stats['balance']:.2f}" if (show_bal and k_stats.get("balance") is not None) else ""
+                    bal_str = f" | ${k_stats['balance']:.2f}" if (show_bal and k_stats.get("balance") is not None) else ""
                     if k_stats["mining"]:
                         gpu = k_stats.get("gpu") if show_gpu else None
                         cpu = k_stats.get("cpu") if show_cpu else None
 
-                        details = f"⛏️ Crypto Mining{bal_str}"
+                        details = f"Crypto Mining{bal_str}"
                         parts = []
                         if gpu and gpu.get("coin_full"):
-                            parts.append(f"🎮 GPU: {gpu['coin_full']}")
+                            parts.append(f"GPU: {gpu['coin_full']}")
                         if cpu and cpu.get("coin_full"):
-                            parts.append(f"💻 CPU: {cpu['coin_full']}")
+                            parts.append(f"CPU: {cpu['coin_full']}")
 
-                        state = " | ".join(parts) if parts else "Mining active"
+                        state = " | ".join(parts) if parts else "Mining Active"
                     else:
-                        details = f"⛏️ Crypto Mining: Idle{bal_str}"
-                        state = "GPU & CPU mining standby"
+                        details = f"Crypto Mining: Idle{bal_str}"
+                        state = "GPU & CPU Standby"
 
                     screens.append({
                         "name": "Crypto Miner",
@@ -1203,8 +1203,8 @@ def main():
                         screens.append({
                             "name": f"Game: {game_name}",
                             "screen_type": "game",
-                            "details": f"🎮 {game_name}",
-                            "state": f"⏱️ Time Opened: {elapsed}",
+                            "details": f"{game_name}",
+                            "state": f"Time Opened: {elapsed}",
                             "game_info": session["game_info"],
                             "start_time": session["start_time"]
                         })
@@ -1214,7 +1214,7 @@ def main():
                     screens.append({
                         "name": "Game Activity",
                         "screen_type": "game",
-                        "details": "🎮 Gaming: Standby",
+                        "details": "Gaming: Standby",
                         "state": "No game currently open",
                         "game_info": None,
                         "start_time": boot_time
@@ -1250,10 +1250,10 @@ def main():
                 # Always show past / cached speeds; never show "Testing Bandwidth..."
                 d_str = format_net_speed(d_val) if d_val is not None else "8.12 Gbps"
                 u_str = format_net_speed(u_val) if u_val is not None else "4.42 Gbps"
-                speed_details = f"🚀 Internet: {d_str} ↓ | {u_str} ↑"
+                speed_details = f"Internet: {d_str} Down | {u_str} Up"
 
                 p_formatted = f"{p_val:.1f}ms" if (p_val is not None and p_val < 10) else (f"{p_val:.0f}ms" if p_val is not None else "2.2ms")
-                speed_state = f"⚡ Ping: {p_formatted} | Protutech Cloud"
+                speed_state = f"Ping: {p_formatted} | Protutech Cloud"
 
                 screens.append({
                     "name": "Network Speed",
@@ -1413,7 +1413,7 @@ def main():
             print(f"[{time.strftime('%X')}] [WARN] Could not reach Proxmox: {e}", flush=True)
             try:
                 rpc.update(
-                    details=f"⚠️ {cfg.get('server_label', 'Protutech')}: Unreachable",
+                    details=f"{cfg.get('server_label', 'Protutech')}: Unreachable",
                     state="Retrying Proxmox VE connection...",
                     large_image=cfg.get("large_image", "protutech"),
                     large_text="Connection error",
