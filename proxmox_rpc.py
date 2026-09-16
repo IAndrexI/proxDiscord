@@ -784,7 +784,7 @@ def fetch_steam_profile(steam_id=None):
             if a_elem is None:
                 a_elem = root.find("avatarIcon")
             if a_elem is not None and a_elem.text:
-                avatar_url = a_elem.text
+                avatar_url = a_elem.text.replace("avatars.fastly.steamstatic.com", "avatars.steamstatic.com")
     except Exception:
         pass
 
@@ -1580,17 +1580,19 @@ def main():
 
             elif current_screen["name"] == "Steam Profile":
                 s_data = current_screen.get("steam_data", {})
-                s_avatar = s_data.get("avatar_url")
+                s_avatar = cfg.get("steam_image") or s_data.get("avatar_url")
                 if s_avatar and (s_avatar.startswith("http://") or s_avatar.startswith("https://")):
-                    large_img = s_avatar
+                    large_img = s_avatar.replace("avatars.fastly.steamstatic.com", "avatars.steamstatic.com")
+                elif s_avatar in BUILTIN_GAME_ICONS:
+                    large_img = BUILTIN_GAME_ICONS[s_avatar]
                 else:
                     large_img = BUILTIN_GAME_ICONS.get("steam", default_large)
 
                 persona = s_data.get("persona", "Steam User")
                 level = s_data.get("level", "0")
                 large_txt = f"{persona} | Level {level}"
-                small_img = DEFAULT_STEAM_ICON
-                small_txt = "Steam | Protutech Cloud"
+                small_img = default_large
+                small_txt = "Protutech Cloud"
 
             game_start = int(current_screen.get("start_time", boot_time))
             activity_kwargs = {
