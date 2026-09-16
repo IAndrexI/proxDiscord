@@ -1283,7 +1283,6 @@ def main():
     screen_index = 0
     last_screen_count = 4 if cfg.get("enable_minecraft_screen", False) else 3
     next_tick = time.time()
-    presence_cleared = False
 
     while True:
         # 1. Ensure Discord RPC connection
@@ -1309,11 +1308,10 @@ def main():
         try:
             cfg = load_config()
             interval = float(cfg.get("update_interval_seconds", 6))
-            hide_when_gaming = cfg.get("hide_presence_while_gaming", True)
 
             # Check game activity & sessions
             now = time.time()
-            if cfg.get("enable_game_activity", True) or hide_when_gaming:
+            if cfg.get("enable_game_activity", True):
                 active_games = detect_active_games(cfg, max_games=3)
 
                 # Update multi-game tracking sessions
@@ -1333,25 +1331,6 @@ def main():
                 expired_games = [name for name, session in _game_sessions.items() if (now - session["last_seen"]) >= GAME_DEBOUNCE_SECONDS]
                 for name in expired_games:
                     del _game_sessions[name]
-
-            # If other apps/games are running and user wants Protutech hidden
-            if hide_when_gaming and _game_sessions:
-                if not presence_cleared:
-                    try:
-                        rpc.clear()
-                    except Exception:
-                        pass
-                    presence_cleared = True
-                    active_names = ", ".join(list(_game_sessions.keys()))
-                    print(f"[{time.strftime('%X')}] [Presence Hidden] Gaming active ({active_names}). Discord activity cleared.", flush=True)
-
-                elapsed = time.time() - cycle_start
-                sleep_time = max(0.5, interval - elapsed)
-                time.sleep(sleep_time)
-                continue
-            elif presence_cleared:
-                print(f"[{time.strftime('%X')}] [Presence Restored] All games closed. Resuming Protutech activity.", flush=True)
-                presence_cleared = False
 
             stats = get_cached_proxmox_stats(cfg)
             label = cfg.get("server_label", "Protutech")
@@ -1399,9 +1378,9 @@ def main():
                         "state": state
                     })
 
-            # Screen 3: Game Activity / Standby
+            # Screen 3: Current Game Activity (Supports up to 3 separate screens for active games)
             if cfg.get("enable_game_activity", True):
-                if not hide_when_gaming and _game_sessions:
+                if _game_sessions:
                     first_game = list(_game_sessions.values())[0]
                     _game_tracker["current"] = first_game["game_info"]["name"]
                     _game_tracker["start_time"] = first_game["start_time"]
