@@ -38,5 +38,12 @@
   "enable_dashboard_button": true,
   "dashboard_button_label": "View All Screens",
   "dashboard_port": 8989,
-  "dashboard_url": "http://localhost:8989"
+  "dashboard_domain": "dash.yourdomain.com",
+  "dashboard_url": "https://dash.yourdomain.com/?user=andrex",
+  "user_id": "andrex",
+  "user_display_name": "Andrex",
+  "enable_cloudflare_tunnel": true,
+  "cloudflare_tunnel_token": "YOUR_CLOUDFLARE_ZERO_TRUST_TUNNEL_TOKEN_HERE",
+  "remote_hub_url": "",
+  "remote_hub_token": ""
 }

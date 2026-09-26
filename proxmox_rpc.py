@@ -1310,6 +1310,63 @@ def start_dashboard_server_if_needed(cfg):
         print(f"[INFO] Web Dashboard server running at http://localhost:{port}", flush=True)
 
 
+CLOUDFLARED_BIN = os.path.join(LOG_DIR, "bin", "cloudflared.exe")
+_cloudflared_proc = None
+_cloudflared_started = False
+
+def start_cloudflare_tunnel_if_needed(cfg):
+    global _cloudflared_proc, _cloudflared_started
+    if not cfg.get("enable_cloudflare_tunnel", False):
+        return
+
+    if _cloudflared_started:
+        return
+
+    token = cfg.get("cloudflare_tunnel_token", "").strip()
+    port = int(cfg.get("dashboard_port", 8989))
+
+    bin_path = CLOUDFLARED_BIN if os.path.exists(CLOUDFLARED_BIN) else (shutil.which("cloudflared") or CLOUDFLARED_BIN)
+    if not os.path.exists(bin_path):
+        print(f"[WARN] Cloudflare tunnel binary not found at {bin_path}", flush=True)
+        return
+
+    try:
+        domain = cfg.get("dashboard_domain", "custom domain")
+        if token:
+            cmd = [bin_path, "tunnel", "run", "--token", token]
+            print(f"[INFO] Connecting Cloudflare Zero Trust Tunnel for {domain}...", flush=True)
+        else:
+            cmd = [bin_path, "tunnel", "--url", f"http://127.0.0.1:{port}"]
+            print(f"[INFO] Starting Cloudflare Quick Tunnel on port {port}...", flush=True)
+
+        creationflags = 0
+        if sys.platform == "win32":
+            creationflags = subprocess.CREATE_NO_WINDOW
+
+        _cloudflared_started = True
+        _cloudflared_proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags
+        )
+        print(f"[INFO] Cloudflare Tunnel running in background (PID: {_cloudflared_proc.pid})", flush=True)
+    except Exception as e:
+        print(f"[WARN] Failed to start Cloudflare Tunnel: {e}", flush=True)
+
+
+def _cleanup_cloudflared():
+    global _cloudflared_proc
+    if _cloudflared_proc and _cloudflared_proc.poll() is None:
+        try:
+            _cloudflared_proc.terminate()
+        except Exception:
+            pass
+
+import atexit
+atexit.register(_cleanup_cloudflared)
+
+
 KNOWN_GAMES = {
     "robloxplayerbeta.exe": ("Roblox", "roblox"),
     "robloxplayer.exe": ("Roblox", "roblox"),
@@ -1743,6 +1800,7 @@ def main():
     # Start web dashboard server if enabled
     if cfg.get("enable_dashboard_button", True):
         start_dashboard_server_if_needed(cfg)
+        start_cloudflare_tunnel_if_needed(cfg)
 
     print("=" * 60, flush=True)
     print("  Proxmox VE Discord Rich Presence (RPC) - Rotating Mode", flush=True)
@@ -2045,6 +2103,7 @@ def main():
             if cfg.get("enable_dashboard_button", True):
                 try:
                     start_dashboard_server_if_needed(cfg)
+                    start_cloudflare_tunnel_if_needed(cfg)
                     dash_screen_list = []
                     for s in screens:
                         try:
@@ -2279,7 +2338,16 @@ def main():
             if cfg.get("enable_dashboard_button", True):
                 button_label = str(cfg.get("dashboard_button_label", "View All Screens"))[:32]
                 dash_port = int(cfg.get("dashboard_port", 8989))
-                dash_url = cfg.get("dashboard_url", f"http://localhost:{dash_port}")
+                user_id = str(cfg.get("user_id", "andrex")).strip().lower()
+                custom_domain = cfg.get("dashboard_domain", "").strip()
+
+                if custom_domain:
+                    dash_url = f"https://{custom_domain}/?user={user_id}"
+                elif cfg.get("dashboard_url"):
+                    dash_url = cfg.get("dashboard_url")
+                else:
+                    dash_url = f"http://localhost:{dash_port}/?user={user_id}"
+
                 activity_kwargs["buttons"] = [
                     {
                         "label": button_label,
