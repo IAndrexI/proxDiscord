@@ -13,7 +13,7 @@
   "show_kryptex_gpu": true,
   "show_kryptex_cpu": true,
   "show_kryptex_balance": false,
-  "enable_game_activity": true,
+  "enable_game_activity": false,
   "game_images": {
     "roblox": "roblox",
     "minecraft": "minecraft",
