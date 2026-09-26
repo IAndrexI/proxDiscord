@@ -1204,17 +1204,38 @@ _game_tracker = {
 }
 
 
-def detect_active_games(cfg, max_games=3):
+def is_pid_alive(pid):
+    if not pid:
+        return False
+    if sys.platform != "win32":
+        return True
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        h = kernel32.OpenProcess(0x1000, False, int(pid))
+        if h:
+            kernel32.CloseHandle(h)
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def detect_active_games(cfg, max_games=3, return_pids=False):
     """
-    Detects all currently running games on the PC up to max_games (default: 3).
-    Checks Steam RunningAppID, custom games, built-in games, and Discord detectable games database.
-    Returns a list of unique game dicts: [{'name': ..., 'slug': ..., 'steam_appid': ..., 'exe_name': ...}]
+    Scans running games across:
+    1. Steam RunningAppID
+    2. Custom games in config.json
+    3. Known popular games
+    4. Discord detectable games database (10,000+ PC games)
+    Attaches process IDs (PIDs) to each detected game and collects all active game PIDs.
     """
     import re
     detected = []
     seen_names = set()
+    all_game_pids = set()
 
-    def add_game(name, slug, steam_appid=None, exe_name=None, discord_icon=None):
+    def add_game(name, slug, steam_appid=None, exe_name=None, discord_icon=None, pid=None, pids=None):
         if name and name.lower() not in seen_names:
             seen_names.add(name.lower())
             detected.append({
@@ -1222,7 +1243,9 @@ def detect_active_games(cfg, max_games=3):
                 "slug": slug,
                 "steam_appid": steam_appid,
                 "exe_name": exe_name,
-                "discord_icon": discord_icon
+                "discord_icon": discord_icon,
+                "pid": pid,
+                "pids": pids or []
             })
 
     # 1. Check Steam RunningAppID
@@ -1281,7 +1304,7 @@ def detect_active_games(cfg, max_games=3):
     except Exception:
         pass
 
-    # 2. Check running processes snapshot
+    # 2. Check running processes snapshot & collect process IDs
     try:
         import ctypes
         from ctypes import wintypes
@@ -1305,10 +1328,11 @@ def detect_active_games(cfg, max_games=3):
         hSnap = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
         pe = PROCESSENTRY32()
         pe.dwSize = ctypes.sizeof(PROCESSENTRY32)
-        procs = set()
+        proc_pids = {}
         if kernel32.Process32First(hSnap, ctypes.byref(pe)):
             while True:
-                procs.add(pe.szExeFile.decode("latin1", errors="ignore").lower())
+                ename = pe.szExeFile.decode("latin1", errors="ignore").lower()
+                proc_pids.setdefault(ename, []).append(pe.th32ProcessID)
                 if not kernel32.Process32Next(hSnap, ctypes.byref(pe)):
                     break
         kernel32.CloseHandle(hSnap)
@@ -1316,44 +1340,51 @@ def detect_active_games(cfg, max_games=3):
         # Check custom games from config
         custom_games = cfg.get("custom_games", {})
         for exe_name, c_info in custom_games.items():
-            if len(detected) >= max_games:
-                break
-            if exe_name.lower() in procs:
-                if isinstance(c_info, dict):
-                    name = c_info.get("name", exe_name)
-                    slug = c_info.get("slug") or re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
-                    add_game(name, slug, steam_appid=c_info.get("steam_appid"), exe_name=exe_name)
-                else:
-                    name = str(c_info)
-                    slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
-                    add_game(name, slug, exe_name=exe_name)
+            ename = exe_name.lower()
+            if ename in proc_pids:
+                gpids = proc_pids[ename]
+                all_game_pids.update(gpids)
+                if len(detected) < max_games:
+                    if isinstance(c_info, dict):
+                        name = c_info.get("name", exe_name)
+                        slug = c_info.get("slug") or re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
+                        add_game(name, slug, steam_appid=c_info.get("steam_appid"), exe_name=exe_name, pid=gpids[0], pids=gpids)
+                    else:
+                        name = str(c_info)
+                        slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
+                        add_game(name, slug, exe_name=exe_name, pid=gpids[0], pids=gpids)
 
         # Check known popular games
         for exe_name, g_info in KNOWN_GAMES.items():
-            if len(detected) >= max_games:
-                break
-            if exe_name in procs:
-                if isinstance(g_info, tuple):
-                    name, slug = g_info
-                else:
-                    name = g_info
-                    slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
-                add_game(name, slug, exe_name=exe_name)
+            ename = exe_name.lower()
+            if ename in proc_pids:
+                gpids = proc_pids[ename]
+                all_game_pids.update(gpids)
+                if len(detected) < max_games:
+                    if isinstance(g_info, tuple):
+                        name, slug = g_info
+                    else:
+                        name = g_info
+                        slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
+                    add_game(name, slug, exe_name=exe_name, pid=gpids[0], pids=gpids)
 
         # Check against comprehensive Discord games database (10,000+ PC games)
         if _discord_games_db:
-            for exe in procs:
-                if len(detected) >= max_games:
-                    break
-                if exe in _discord_games_db:
-                    g_meta = _discord_games_db[exe]
-                    g_name = g_meta.get("name", exe)
-                    slug = re.sub(r'[^a-z0-9_]', '', g_name.lower().replace(" ", "_"))
-                    add_game(g_name, slug, exe_name=exe, discord_icon=g_meta.get("icon"))
+            for ename in proc_pids:
+                if ename in _discord_games_db:
+                    gpids = proc_pids[ename]
+                    all_game_pids.update(gpids)
+                    if len(detected) < max_games:
+                        g_meta = _discord_games_db[ename]
+                        g_name = g_meta.get("name", ename)
+                        slug = re.sub(r'[^a-z0-9_]', '', g_name.lower().replace(" ", "_"))
+                        add_game(g_name, slug, exe_name=ename, discord_icon=g_meta.get("icon"), pid=gpids[0], pids=gpids)
 
     except Exception:
         pass
 
+    if return_pids:
+        return detected[:max_games], all_game_pids
     return detected[:max_games]
 
 
@@ -1549,6 +1580,7 @@ def main():
     screen_index = 0
     last_screen_count = 4 if cfg.get("enable_minecraft_screen", False) else 3
     next_tick = time.time()
+    _previously_active_pids = set()
 
     while True:
         # 1. Ensure Discord RPC connection
@@ -1577,8 +1609,10 @@ def main():
 
             # Check game activity & sessions
             now = time.time()
+            active_games = []
+            all_game_pids = set()
             if cfg.get("enable_game_activity", True):
-                active_games = detect_active_games(cfg, max_games=3)
+                active_games, all_game_pids = detect_active_games(cfg, max_games=3, return_pids=True)
 
                 # Update multi-game tracking sessions
                 for g_info in active_games:
@@ -1980,10 +2014,55 @@ def main():
                 activity_kwargs["party_size"] = [stats["running_guests"], stats["total_guests"]]
                 activity_kwargs["party_id"] = "protutech_guests"
 
-            # Notice: Buttons are removed completely as requested
+            # Priority Display Enforcement:
+            # Prevent any running game from appearing on top of Protutech!
+            # If any game is active, bind Protutech's Rich Presence directly to the active game's PID.
+            # This turns the game's Discord presence into Protutech, ensuring Protutech is ALWAYS the main display.
+            target_pid = os.getpid()
 
-            rpc.update(**activity_kwargs)
-            print(f"[{time.strftime('%X')}] [Screen {screen_index}/{len(screens)} - {current_screen['name']}] {current_screen['details']} | {current_screen['state']}", flush=True)
+            # If current screen is a specific game screen, bind to that specific game's PID
+            if current_screen.get("screen_type") == "game" and current_screen.get("game_info"):
+                g_pid = current_screen["game_info"].get("pid")
+                if g_pid and is_pid_alive(g_pid):
+                    target_pid = g_pid
+            elif active_games:
+                # On non-game screens (Proxmox, Crypto, Speed, Steam, GitHub, Free Games),
+                # bind to the primary active game PID so Discord displays Protutech as the active game
+                for g in active_games:
+                    g_pid = g.get("pid")
+                    if g_pid and is_pid_alive(g_pid):
+                        target_pid = g_pid
+                        break
+
+            # Actively suppress and clear all other competing game PIDs
+            for p in all_game_pids:
+                if p != target_pid and is_pid_alive(p):
+                    try:
+                        rpc.clear(pid=p)
+                    except Exception:
+                        pass
+
+            # If target_pid is a game process, clear Python's own PID to prevent duplicate ghost activities
+            if target_pid != os.getpid():
+                try:
+                    rpc.clear(pid=os.getpid())
+                except Exception:
+                    pass
+
+            # Clear any previously tracked game PIDs that have now closed
+            for p in list(_previously_active_pids):
+                if p not in all_game_pids and p != target_pid:
+                    try:
+                        rpc.clear(pid=p)
+                    except Exception:
+                        pass
+                    _previously_active_pids.discard(p)
+
+            _previously_active_pids.update(all_game_pids)
+
+            # Update Discord Rich Presence on the chosen priority PID
+            rpc.update(pid=target_pid, **activity_kwargs)
+            print(f"[{time.strftime('%X')}] [Screen {screen_index}/{len(screens)} - {current_screen['name']}] [PID: {target_pid}] {current_screen['details']} | {current_screen['state']}", flush=True)
 
         except requests.exceptions.RequestException as e:
             print(f"[{time.strftime('%X')}] [WARN] Could not reach Proxmox: {e}", flush=True)
