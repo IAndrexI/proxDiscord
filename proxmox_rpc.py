@@ -15,6 +15,7 @@ import sys
 import socket
 import socketserver
 import http.server
+import urllib.parse
 import struct
 import threading
 import time
@@ -1139,19 +1140,33 @@ def get_cached_free_games(cfg):
 
 # Web Dashboard Server Integration
 _dashboard_state = {
+    "user_id": "andrex",
+    "user_name": "Andrex",
+    "user_avatar": "",
     "screens": [],
     "current_screen_name": "",
     "screen_index": 0,
     "last_updated": 0
 }
+_users_store = {}
 _dashboard_lock = threading.Lock()
 _dashboard_server_started = False
 DASHBOARD_HTML_PATH = os.path.join(LOG_DIR, "dashboard.html")
 
 
 class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.end_headers()
+
     def do_GET(self):
-        parsed_path = self.path.split("?")[0]
+        url_parts = urllib.parse.urlparse(self.path)
+        parsed_path = url_parts.path
+        query_params = urllib.parse.parse_qs(url_parts.query)
+
         if parsed_path in ("/", "/index.html"):
             content = b""
             if os.path.exists(DASHBOARD_HTML_PATH):
@@ -1169,9 +1184,66 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(content)
 
-        elif parsed_path in ("/api/stats", "/api/screens"):
+        elif parsed_path in ("/api/users", "/api/members"):
             with _dashboard_lock:
-                payload = json.dumps(_dashboard_state).encode("utf-8")
+                users_list = []
+                now = time.time()
+                local_uid = _dashboard_state.get("user_id", "andrex")
+                if local_uid and local_uid not in _users_store and _dashboard_state.get("screens"):
+                    _users_store[local_uid] = dict(_dashboard_state)
+
+                USERS_FILE = os.path.join(LOG_DIR, "users.json")
+                if os.path.exists(USERS_FILE):
+                    try:
+                        with open(USERS_FILE, "r", encoding="utf-8") as f:
+                            extra_users = json.load(f)
+                            for e_uid, e_val in extra_users.items():
+                                if e_uid not in _users_store:
+                                    _users_store[e_uid] = e_val
+                    except Exception:
+                        pass
+
+                for uid, udata in _users_store.items():
+                    last_seen = udata.get("last_updated", 0)
+                    is_online = (now - last_seen) < 120
+                    users_list.append({
+                        "id": uid,
+                        "name": udata.get("user_name", uid),
+                        "avatar": udata.get("user_avatar") or DEFAULT_PROXMOX_ICON,
+                        "online": is_online,
+                        "current_screen": udata.get("current_screen_name", ""),
+                        "total_screens": len(udata.get("screens", [])),
+                        "last_updated": last_seen
+                    })
+                payload = json.dumps({"users": users_list, "default_user": local_uid}).encode("utf-8")
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        elif parsed_path in ("/api/stats", "/api/screens"):
+            requested_user = query_params.get("user", [None])[0]
+            with _dashboard_lock:
+                if requested_user and requested_user.lower() not in _users_store:
+                    USERS_FILE = os.path.join(LOG_DIR, "users.json")
+                    if os.path.exists(USERS_FILE):
+                        try:
+                            with open(USERS_FILE, "r", encoding="utf-8") as f:
+                                extra_users = json.load(f)
+                                for e_uid, e_val in extra_users.items():
+                                    _users_store[e_uid.lower()] = e_val
+                        except Exception:
+                            pass
+
+                if requested_user and requested_user.lower() in _users_store:
+                    target_data = _users_store[requested_user.lower()]
+                else:
+                    target_data = _dashboard_state
+                payload = json.dumps(target_data).encode("utf-8")
+
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -1181,6 +1253,37 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
 
         else:
             self.send_response(404)
+            self.end_headers()
+
+    def do_POST(self):
+        parsed_path = self.path.split("?")[0]
+        if parsed_path == "/api/push":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length)
+                data = json.loads(body.decode("utf-8"))
+                uid = str(data.get("user_id", "")).strip().lower()
+                if uid:
+                    with _dashboard_lock:
+                        _users_store[uid] = {
+                            "user_id": uid,
+                            "user_name": data.get("user_name", uid),
+                            "user_avatar": data.get("user_avatar") or DEFAULT_PROXMOX_ICON,
+                            "screens": data.get("screens", []),
+                            "current_screen_name": data.get("current_screen_name", ""),
+                            "screen_index": data.get("screen_index", 0),
+                            "total_screens": len(data.get("screens", [])),
+                            "last_updated": time.time()
+                        }
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(b'{"status": "ok"}')
+                    return
+            except Exception:
+                pass
+            self.send_response(400)
             self.end_headers()
 
     def log_message(self, format, *args):
@@ -1983,15 +2086,50 @@ def main():
                             "game_info": s.get("game_info")
                         })
 
+                    user_id = str(cfg.get("user_id", "andrex")).strip().lower()
+                    user_name = str(cfg.get("user_display_name", "Andrex")).strip()
+                    user_avatar = cfg.get("user_avatar_url") or ""
+                    if not user_avatar:
+                        for item in dash_screen_list:
+                            if item.get("name") == "Steam Profile" and item.get("steam_data"):
+                                user_avatar = item["steam_data"].get("avatar_url")
+                                break
+                    if not user_avatar:
+                        user_avatar = DEFAULT_PROXMOX_ICON
+
                     with _dashboard_lock:
                         _dashboard_state.clear()
                         _dashboard_state.update({
+                            "user_id": user_id,
+                            "user_name": user_name,
+                            "user_avatar": user_avatar,
                             "screens": dash_screen_list,
                             "current_screen_name": current_screen.get("name", ""),
                             "screen_index": screen_index,
                             "total_screens": len(screens),
                             "last_updated": time.time()
                         })
+                        _users_store[user_id] = dict(_dashboard_state)
+
+                    # Optional remote Cloudflare hub push
+                    remote_hub = cfg.get("remote_hub_url")
+                    if remote_hub:
+                        try:
+                            push_payload = {
+                                "user_id": user_id,
+                                "user_name": user_name,
+                                "user_avatar": user_avatar,
+                                "screens": dash_screen_list,
+                                "current_screen_name": current_screen.get("name", ""),
+                                "screen_index": screen_index,
+                                "token": cfg.get("remote_hub_token", "")
+                            }
+                            threading.Thread(
+                                target=lambda: requests.post(f"{remote_hub.rstrip('/')}/api/push", json=push_payload, timeout=5),
+                                daemon=True
+                            ).start()
+                        except Exception:
+                            pass
                 except Exception as d_err:
                     print(f"[WARN] Dashboard state update error: {d_err}", flush=True)
 

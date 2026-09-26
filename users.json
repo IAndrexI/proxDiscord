@@ -1,0 +1,43 @@
+{
+  "node2": {
+    "user_id": "node2",
+    "user_name": "Homelab Node 2",
+    "user_avatar": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png",
+    "current_screen_name": "Proxmox Overview",
+    "screen_index": 0,
+    "last_updated": 1789370000,
+    "screens": [
+      {
+        "name": "Proxmox Overview",
+        "screen_type": "System Screen",
+        "details": "PVE-Cluster-02 | 4 VMs | 8 LXCs",
+        "state": "Up: 14d 6h | CPU: 12% | RAM: 48%",
+        "large_image": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png",
+        "stats": {
+          "cpu_pct": 12.4,
+          "mem_pct": 48.0,
+          "storage_used_gb": 820,
+          "storage_total_tb": 8.0,
+          "storage_pct": 10.2,
+          "running_vms": 4,
+          "total_vms": 4,
+          "running_lxcs": 8,
+          "total_lxcs": 8,
+          "uptime": "14d 6h"
+        }
+      },
+      {
+        "name": "Network Speed",
+        "screen_type": "System Screen",
+        "details": "Internet: 2.50 Gbps Down | 2.50 Gbps Up",
+        "state": "Ping: 4.2ms | Fiber Uplink",
+        "large_image": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/cloudflare.png",
+        "net_stats": {
+          "down_mbps": 2500,
+          "up_mbps": 2500,
+          "ping_ms": 4.2
+        }
+      }
+    ]
+  }
+}
