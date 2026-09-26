@@ -13,6 +13,8 @@ import sqlite3
 import subprocess
 import sys
 import socket
+import socketserver
+import http.server
 import struct
 import threading
 import time
@@ -1135,6 +1137,76 @@ def get_cached_free_games(cfg):
     return {"games": [], "count": 0, "last_updated": time.time()}
 
 
+# Web Dashboard Server Integration
+_dashboard_state = {
+    "screens": [],
+    "current_screen_name": "",
+    "screen_index": 0,
+    "last_updated": 0
+}
+_dashboard_lock = threading.Lock()
+_dashboard_server_started = False
+DASHBOARD_HTML_PATH = os.path.join(LOG_DIR, "dashboard.html")
+
+
+class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        parsed_path = self.path.split("?")[0]
+        if parsed_path in ("/", "/index.html"):
+            content = b""
+            if os.path.exists(DASHBOARD_HTML_PATH):
+                try:
+                    with open(DASHBOARD_HTML_PATH, "rb") as f:
+                        content = f.read()
+                except Exception:
+                    pass
+            if not content:
+                content = b"<!DOCTYPE html><html><body><h1>Protutech Cloud Dashboard</h1><p>Dashboard HTML not found.</p></body></html>"
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+
+        elif parsed_path in ("/api/stats", "/api/screens"):
+            with _dashboard_lock:
+                payload = json.dumps(_dashboard_state).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        # Suppress noisy HTTP access logs
+        pass
+
+
+def _dashboard_server_worker(port=8989):
+    try:
+        socketserver.TCPServer.allow_reuse_address = True
+        server = socketserver.TCPServer(("0.0.0.0", port), DashboardRequestHandler)
+        server.serve_forever()
+    except Exception as e:
+        print(f"[WARN] Dashboard server error on port {port}: {e}", flush=True)
+
+
+def start_dashboard_server_if_needed(cfg):
+    global _dashboard_server_started
+    if not _dashboard_server_started:
+        port = int(cfg.get("dashboard_port", 8989))
+        _dashboard_server_started = True
+        t = threading.Thread(target=_dashboard_server_worker, args=(port,), daemon=True)
+        t.start()
+        print(f"[INFO] Web Dashboard server running at http://localhost:{port}", flush=True)
+
+
 KNOWN_GAMES = {
     "robloxplayerbeta.exe": ("Roblox", "roblox"),
     "robloxplayer.exe": ("Roblox", "roblox"),
@@ -1552,7 +1624,7 @@ def resolve_game_image(game_info, cfg):
 _app_mutex = None
 
 def main():
-    global _app_mutex
+    global _app_mutex, _dashboard_state
     if sys.platform == "win32":
         import ctypes
         kernel32 = ctypes.windll.kernel32
@@ -1564,6 +1636,10 @@ def main():
     cfg = load_config()
     client_id = cfg.get("discord_client_id", "1548928413337788486")
     interval = cfg.get("update_interval_seconds", 6)
+
+    # Start web dashboard server if enabled
+    if cfg.get("enable_dashboard_button", True):
+        start_dashboard_server_if_needed(cfg)
 
     print("=" * 60, flush=True)
     print("  Proxmox VE Discord Rich Presence (RPC) - Rotating Mode", flush=True)
@@ -1648,6 +1724,7 @@ def main():
             })
 
             # Screen 2: Cryptocurrency Mining Status (when enabled)
+            k_stats = None
             if cfg.get("enable_kryptex_screen", True):
                 k_stats = fetch_kryptex_stats(cfg)
                 if k_stats:
@@ -1859,6 +1936,63 @@ def main():
             default_large = cfg.get("large_image", "protutech")
             game_images = cfg.get("game_images", {})
 
+            # Update web dashboard live state
+            if cfg.get("enable_dashboard_button", True):
+                try:
+                    start_dashboard_server_if_needed(cfg)
+                    dash_screen_list = []
+                    for s in screens:
+                        try:
+                            s_name = s.get("name", "")
+                            s_type = s.get("screen_type", "System Screen")
+                            if s_name == "Proxmox Overview":
+                                s_icon = DEFAULT_PROXMOX_ICON
+                            elif s_name == "Crypto Miner":
+                                s_icon = DEFAULT_KRYPTEX_ICON
+                            elif s_name == "Network Speed":
+                                s_icon = DEFAULT_SPEED_ICON
+                            elif s_name in ("GitHub Repositories", "GitHub"):
+                                s_icon = DEFAULT_GITHUB_ICON
+                            elif s_name == "Free Games":
+                                s_icon = DEFAULT_EPIC_GAMES_ICON
+                            elif s_name == "Steam Profile":
+                                s_icon = s.get("steam_data", {}).get("avatar_url") if s.get("steam_data") else default_large
+                            elif s_name == "Minecraft":
+                                s_icon = BUILTIN_GAME_ICONS.get("minecraft", DEFAULT_PROXMOX_ICON)
+                            elif s_type == "game":
+                                s_icon = resolve_game_image(s.get("game_info"), cfg) or default_large
+                            else:
+                                s_icon = default_large
+                        except Exception:
+                            s_icon = default_large
+
+                        dash_screen_list.append({
+                            "name": s.get("name", "Screen"),
+                            "screen_type": s.get("screen_type", "System Screen"),
+                            "details": s.get("details", ""),
+                            "state": s.get("state", ""),
+                            "large_image": s_icon or default_large,
+                            "stats": stats if s.get("name") == "Proxmox Overview" else None,
+                            "k_stats": k_stats if s.get("name") == "Crypto Miner" else None,
+                            "net_stats": _net_stats if s.get("name") == "Network Speed" else None,
+                            "steam_data": s.get("steam_data"),
+                            "github_stats": s.get("github_stats"),
+                            "free_games_data": s.get("free_games_data"),
+                            "game_info": s.get("game_info")
+                        })
+
+                    with _dashboard_lock:
+                        _dashboard_state.clear()
+                        _dashboard_state.update({
+                            "screens": dash_screen_list,
+                            "current_screen_name": current_screen.get("name", ""),
+                            "screen_index": screen_index,
+                            "total_screens": len(screens),
+                            "last_updated": time.time()
+                        })
+                except Exception as d_err:
+                    print(f"[WARN] Dashboard state update error: {d_err}", flush=True)
+
             large_img = default_large
             large_txt = f"Protutech Cloud | {stats['running_guests']}/{stats['total_guests']} Services Online"
             small_img = None
@@ -2000,6 +2134,18 @@ def main():
                 activity_kwargs["small_image"] = small_img
             if small_txt:
                 activity_kwargs["small_text"] = small_txt
+
+            # Optional Dashboard Button (displays interactive button on Discord profile)
+            if cfg.get("enable_dashboard_button", True):
+                button_label = str(cfg.get("dashboard_button_label", "View All Screens"))[:32]
+                dash_port = int(cfg.get("dashboard_port", 8989))
+                dash_url = cfg.get("dashboard_url", f"http://localhost:{dash_port}")
+                activity_kwargs["buttons"] = [
+                    {
+                        "label": button_label,
+                        "url": dash_url
+                    }
+                ]
 
             # Optional Party Badge (shows e.g. "(16 of 16)" guests or "(2 of 20)" minecraft players)
             if current_screen["name"] == "Minecraft":

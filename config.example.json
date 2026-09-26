@@ -25,5 +25,18 @@
   "enable_speed_screen": true,
   "speed_image": "cloudflare",
   "speedtest_interval_minutes": 30,
-  "ping_host": "1.1.1.1"
+  "ping_host": "1.1.1.1",
+  "enable_steam_screen": true,
+  "steam_id": "YOUR_STEAM_ID64_OR_VANITY_URL",
+  "steam_cache_minutes": 15,
+  "enable_github_screen": true,
+  "github_username": "YOUR_GITHUB_USERNAME",
+  "github_token": "",
+  "github_cache_minutes": 30,
+  "enable_free_games_screen": true,
+  "free_games_cache_minutes": 60,
+  "enable_dashboard_button": true,
+  "dashboard_button_label": "View All Screens",
+  "dashboard_port": 8989,
+  "dashboard_url": "http://localhost:8989"
 }

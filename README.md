@@ -10,10 +10,16 @@ Display live Proxmox VE server stats directly on your Discord profile using Disc
 - **Auto-Rotating or Manually Locked Screens**:
   1. **Proxmox Overview**: Node status, Uptime, running VMs/LXCs, CPU, RAM, and Storage.
   2. **Crypto Mining**: Live GPU & CPU cryptocurrencies being mined via Kryptex (Pearl, Xelis, etc.).
-  3. **Game Activity**: Live auto-detection of games currently playing on your PC (Steam, Roblox, Minecraft, Epic Games, Riot, etc.).
+  3. **Game Activity**: Live auto-detection of games currently playing on your PC (Steam, Roblox, Minecraft, Epic Games, Riot, etc.). Supports up to 3 separate active game sessions simultaneously with main display priority.
   4. **Minecraft Server**: Live server status (Online/Offline) and player counts with optional hidden IP for privacy.
   5. **Internet Speed & Ping**: Live TCP latency (ms) and periodic download/upload bandwidth metrics (Mbps).
-- **Manual Screen Locking**: Lock Discord Rich Presence to a specific screen (`"active_screen": "proxmox" | "mining" | "gaming" | "minecraft" | "speed"`) or keep it on timed rotation (`"rotate"`). Changes apply immediately via hot-reloading!
+  6. **Steam Profile**: Steam avatar, profile level, total games owned, and inventory item count.
+  7. **GitHub Repositories**: Total public repositories created with strict privacy enforcement (no tracing/account links).
+  8. **Free PC Games**: Live claimable games currently free on Epic Games Store and Steam with zero claim deadlines missed.
+- **Discord RPC Interactive Button & Single-Page Dashboard**:
+  - Displays a clickable button on your Discord profile (`[View All Screens]`).
+  - Clicking opens a self-contained, responsive dark-mode Web Dashboard (`http://localhost:8989`) showing all mini screens simultaneously in a live card grid with 3s auto-refresh!
+- **Manual Screen Locking**: Lock Discord Rich Presence to a specific screen (`"active_screen": "proxmox" | "mining" | "gaming" | "minecraft" | "speed" | "steam" | "github" | "freegames"`) or keep it on timed rotation (`"rotate"`).
 - **Dynamic Image Swapping**:
   - Automatically fetches official game banners for all Steam games.
   - Supports custom game/mining images via Discord Developer Portal asset keys or direct HTTPS URLs in `config.json`.

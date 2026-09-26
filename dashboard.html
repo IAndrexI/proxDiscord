@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Protutech Cloud | Live System Hub</title>
+  <link rel="icon" href="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png">
+  <style>
+    :root {
+      --bg: #0b0e14;
+      --card-bg: rgba(22, 27, 38, 0.82);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-hover: rgba(30, 37, 52, 0.95);
+      --text: #f2f3f5;
+      --text-muted: #949ba4;
+      --accent: #5865f2;
+      --accent-glow: rgba(88, 101, 242, 0.35);
+      --green: #23a55a;
+      --green-glow: rgba(35, 165, 90, 0.35);
+      --amber: #f0b232;
+      --red: #f23f43;
+      --purple: #9b59b6;
+      --radius: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background: radial-gradient(circle at 15% 15%, #141a29 0%, #0b0e14 70%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1380px;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 20px 24px;
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+      margin-bottom: 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      box-shadow: 0 0 15px var(--accent-glow);
+    }
+
+    .brand-title {
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .pulse-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 20px;
+      background: rgba(35, 165, 90, 0.12);
+      border: 1px solid rgba(35, 165, 90, 0.3);
+      color: var(--green);
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--green);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--green);
+      animation: pulse 1.8s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.3); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+
+    .btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+      box-shadow: 0 0 15px var(--accent-glow);
+    }
+
+    /* Active Discord Banner */
+    .discord-banner {
+      background: linear-gradient(90deg, rgba(88, 101, 242, 0.15) 0%, rgba(35, 165, 90, 0.15) 100%);
+      border: 1px solid rgba(88, 101, 242, 0.3);
+      border-radius: var(--radius);
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      gap: 16px;
+    }
+
+    .discord-now {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .discord-pill {
+      background: var(--accent);
+      color: white;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .discord-details {
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    .discord-meta {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    /* Grid Layout */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(390px, 1fr));
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 20px;
+      transition: all 0.25s ease;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card:hover {
+      background: var(--card-hover);
+      border-color: rgba(255, 255, 255, 0.18);
+      transform: translateY(-3px);
+      box-shadow: 0 12px 25px rgba(0, 0, 0, 0.5);
+    }
+
+    .card.active-screen {
+      border-color: var(--accent);
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .card.active-screen::before {
+      content: "DISCORD DISPLAY ACTIVE";
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      font-size: 0.65rem;
+      font-weight: 700;
+      background: var(--accent);
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      letter-spacing: 0.05em;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
+    .card-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      object-fit: cover;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 4px;
+    }
+
+    .card-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .card-subtitle {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .card-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .primary-metric {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .secondary-state {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    /* Progress & Metric Bars */
+    .metric-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+      font-size: 0.82rem;
+    }
+
+    .progress-bar-bg {
+      width: 100%;
+      height: 7px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent) 0%, #3ba55d 100%);
+      border-radius: 4px;
+      transition: width 0.4s ease;
+    }
+
+    /* Badges & Chips */
+    .chips-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .chip {
+      font-size: 0.76rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      color: var(--text-muted);
+    }
+
+    .chip.highlight {
+      background: rgba(88, 101, 242, 0.15);
+      border-color: rgba(88, 101, 242, 0.35);
+      color: #b5c2f8;
+    }
+
+    .chip.green {
+      background: rgba(35, 165, 90, 0.15);
+      border-color: rgba(35, 165, 90, 0.35);
+      color: #57f287;
+    }
+
+    .footer {
+      margin-top: 40px;
+      text-align: center;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      padding: 16px;
+      border-top: 1px solid var(--card-border);
+    }
+
+    @media (max-width: 600px) {
+      body { padding: 12px; }
+      header { flex-direction: column; align-items: flex-start; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <!-- Top Navigation Bar -->
+  <header>
+    <div class="brand">
+      <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png" alt="Proxmox" class="brand-icon">
+      <div>
+        <div class="brand-title">
+          Protutech Cloud
+          <span class="pulse-pill"><span class="pulse-dot"></span> LIVE SYNC</span>
+        </div>
+        <div class="brand-subtitle">Real-time Discord Rich Presence & System Dashboard</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn" onclick="fetchStats()">↻ Refresh</button>
+      <button class="btn" id="auto-btn" onclick="toggleAuto()">Auto: 3s</button>
+    </div>
+  </header>
+
+  <!-- Discord Broadcast Banner -->
+  <div class="discord-banner">
+    <div class="discord-now">
+      <span class="discord-pill">Discord Live</span>
+      <div>
+        <div class="discord-details" id="discord-details">Connecting to Protutech RPC...</div>
+        <div class="discord-meta" id="discord-state">Loading active rotation status...</div>
+      </div>
+    </div>
+    <div class="discord-meta" id="rotation-counter" style="text-align: right; font-weight: 600;">
+      6.0s Rotation
+    </div>
+  </div>
+
+  <!-- All Mini Screens Grid -->
+  <div class="grid" id="screens-grid">
+    <!-- Populated dynamically via JavaScript -->
+  </div>
+
+  <footer class="footer">
+    Protutech VE Discord RPC • Auto-synced with Discord User Profile • Single-Page Dashboard
+  </footer>
+</div>
+
+<script>
+  let autoRefresh = true;
+  let timerId = null;
+
+  async function fetchStats() {
+    try {
+      const res = await fetch('/api/stats');
+      if (!res.ok) throw new Error("HTTP error " + res.status);
+      const data = await res.json();
+      renderDashboard(data);
+    } catch (e) {
+      console.error("Failed to fetch live stats:", e);
+    }
+  }
+
+  function renderDashboard(data) {
+    const screens = data.screens || [];
+    const currentName = data.current_screen_name || "";
+    const activeIdx = data.screen_index !== undefined ? data.screen_index : 0;
+
+    // Update Discord live banner
+    if (screens.length > 0) {
+      const cur = screens.find(s => s.name === currentName) || screens[0];
+      document.getElementById('discord-details').textContent = cur.details;
+      document.getElementById('discord-state').textContent = cur.state;
+      document.getElementById('rotation-counter').textContent = `Screen ${activeIdx + 1} of ${screens.length} • 6.0s`;
+    }
+
+    const grid = document.getElementById('screens-grid');
+    grid.innerHTML = '';
+
+    screens.forEach(s => {
+      const isCurrent = (s.name === currentName);
+      const card = document.createElement('div');
+      card.className = `card ${isCurrent ? 'active-screen' : ''}`;
+
+      let iconUrl = s.large_image || "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png";
+      if (!iconUrl.startsWith("http://") && !iconUrl.startsWith("https://")) {
+        iconUrl = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png";
+      }
+
+      let extraContent = '';
+
+      // Screen-specific rich metric displays
+      if (s.name === "Proxmox Overview" && s.stats) {
+        const cpu = s.stats.cpu_pct || 0;
+        const ram = s.stats.mem_pct || 0;
+        const usedGb = (s.stats.storage_used_gb || 0).toFixed(0);
+        const totalTb = (s.stats.storage_total_tb || 0).toFixed(1);
+        const stPct = s.stats.storage_pct || 0;
+
+        extraContent = `
+          <div style="margin-top: 8px;">
+            <div class="metric-row"><span>CPU Utilization</span><span>${cpu.toFixed(1)}%</span></div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${Math.min(100, cpu)}%;"></div></div>
+
+            <div class="metric-row"><span>Memory Usage</span><span>${ram.toFixed(0)}%</span></div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${Math.min(100, ram)}%; background: linear-gradient(90deg, #5865f2, #9b59b6);"></div></div>
+
+            <div class="metric-row"><span>Storage Pool (${s.stats.storage_pool || 'local-lvm'})</span><span>${usedGb}G / ${totalTb}TB</span></div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${Math.min(100, stPct)}%; background: linear-gradient(90deg, #f0b232, #f23f43);"></div></div>
+
+            <div class="chips-group">
+              <span class="chip green">● ${s.stats.running_vms || 0}/${s.stats.total_vms || 0} VMs</span>
+              <span class="chip green">● ${s.stats.running_lxcs || 0}/${s.stats.total_lxcs || 0} LXCs</span>
+              <span class="chip">Up: ${s.stats.uptime || '0m'}</span>
+            </div>
+          </div>
+        `;
+      } else if (s.name === "Crypto Miner" && s.k_stats) {
+        const k = s.k_stats;
+        extraContent = `
+          <div class="chips-group" style="margin-top: 8px;">
+            <span class="chip ${k.mining ? 'green' : ''}">${k.mining ? '● Mining Active' : '○ Standby'}</span>
+            ${k.gpu ? `<span class="chip highlight">GPU: ${k.gpu.coin} (${k.gpu.hashrate})</span>` : ''}
+            ${k.cpu ? `<span class="chip highlight">CPU: ${k.cpu.coin} (${k.cpu.hashrate})</span>` : ''}
+          </div>
+        `;
+      } else if (s.name === "Network Speed" && s.net_stats) {
+        const n = s.net_stats;
+        extraContent = `
+          <div class="chips-group" style="margin-top: 8px;">
+            <span class="chip green">↓ ${n.down_mbps >= 1000 ? (n.down_mbps/1000).toFixed(2) + ' Gbps' : n.down_mbps + ' Mbps'} Down</span>
+            <span class="chip highlight">↑ ${n.up_mbps >= 1000 ? (n.up_mbps/1000).toFixed(2) + ' Gbps' : n.up_mbps + ' Mbps'} Up</span>
+            <span class="chip">⚡ ${n.ping_ms ? n.ping_ms.toFixed(1) + 'ms' : '2.2ms'} Ping</span>
+          </div>
+        `;
+      } else if (s.name === "Steam Profile" && s.steam_data) {
+        const st = s.steam_data;
+        extraContent = `
+          <div class="chips-group" style="margin-top: 8px;">
+            <span class="chip highlight">Level ${st.level || 0}</span>
+            <span class="chip">${st.games || 0} Games</span>
+            <span class="chip">${st.items || 0} Inventory Items</span>
+          </div>
+        `;
+      } else if (s.name === "GitHub Repositories" && s.github_stats) {
+        const gh = s.github_stats;
+        extraContent = `
+          <div class="chips-group" style="margin-top: 8px;">
+            <span class="chip green">${gh.total_repos || 0} Repositories</span>
+            <span class="chip">Strict Privacy Safe</span>
+          </div>
+        `;
+      } else if (s.name === "Free Games" && s.free_games_data) {
+        const fg = s.free_games_data;
+        const gamesList = fg.games || [];
+        extraContent = `
+          <div class="chips-group" style="margin-top: 8px;">
+            ${gamesList.map(g => `<span class="chip green">Free: ${g.title} (${g.platform})</span>`).join('')}
+          </div>
+        `;
+      } else if (s.screen_type === "game" && s.game_info) {
+        extraContent = `
+          <div class="chips-group" style="margin-top: 8px;">
+            <span class="chip green">● Process Active</span>
+            <span class="chip highlight">${s.game_info.exe_name || 'Game'}</span>
+            <span class="chip">Main Display Priority</span>
+          </div>
+        `;
+      }
+
+      card.innerHTML = `
+        <div class="card-header">
+          <img src="${iconUrl}" class="card-icon" onerror="this.src='https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png'">
+          <div>
+            <div class="card-title">${s.name}</div>
+            <div class="card-subtitle">${s.screen_type || 'System Screen'}</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="primary-metric">${s.details}</div>
+          <div class="secondary-state">${s.state}</div>
+          ${extraContent}
+        </div>
+      `;
+      grid.appendChild(card);
+    });
+  }
+
+  function toggleAuto() {
+    autoRefresh = !autoRefresh;
+    const btn = document.getElementById('auto-btn');
+    if (autoRefresh) {
+      btn.textContent = "Auto: 3s";
+      btn.style.color = "var(--text)";
+      startPolling();
+    } else {
+      btn.textContent = "Auto: OFF";
+      btn.style.color = "var(--red)";
+      clearInterval(timerId);
+    }
+  }
+
+  function startPolling() {
+    clearInterval(timerId);
+    timerId = setInterval(fetchStats, 3000);
+  }
+
+  // Initial fetch and start auto-poll
+  fetchStats();
+  startPolling();
+</script>
+</body>
+</html>
