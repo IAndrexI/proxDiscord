@@ -875,6 +875,266 @@ def get_cached_steam_stats(cfg):
     return None
 
 
+# GitHub Stats Integration & Caching
+_github_worker_started = False
+_github_lock = threading.Lock()
+_cached_github_stats = None
+GITHUB_CACHE_FILE = os.path.join(LOG_DIR, "github_cache.json")
+
+
+def load_github_cache():
+    if os.path.exists(GITHUB_CACHE_FILE):
+        try:
+            with open(GITHUB_CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+
+def save_github_cache(data):
+    try:
+        with open(GITHUB_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+
+def fetch_github_stats(username, token=None):
+    """
+    Fetches the total repository count created by the user.
+    Strict Privacy Rule:
+    The returned data only contains aggregate metrics (total repository count).
+    No repository URLs, repository names, or user profile links are exposed.
+    """
+    total_repos = None
+    headers = {
+        "User-Agent": "Protutech-Discord-RPC",
+        "Accept": "application/vnd.github.v3+json"
+    }
+
+    # If personal access token is provided, fetch authenticated user profile (includes private repos)
+    if token:
+        try:
+            auth_headers = dict(headers)
+            auth_headers["Authorization"] = f"Bearer {str(token).strip()}"
+            resp = requests.get("https://api.github.com/user", headers=auth_headers, timeout=5.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                pub = data.get("public_repos", 0)
+                priv = data.get("total_private_repos") or data.get("owned_private_repos") or 0
+                total_repos = pub + priv
+        except Exception:
+            pass
+
+    # Fallback to public profile if no token or token query failed
+    if total_repos is None and username:
+        try:
+            user_url = f"https://api.github.com/users/{str(username).strip()}"
+            resp = requests.get(user_url, headers=headers, timeout=5.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                total_repos = data.get("public_repos", 0)
+        except Exception:
+            pass
+
+    if total_repos is not None:
+        return {
+            "total_repos": total_repos,
+            "last_updated": time.time()
+        }
+    return None
+
+
+def _github_stats_worker():
+    while True:
+        try:
+            cfg = load_config()
+            if cfg.get("enable_github_screen", True):
+                interval_min = float(cfg.get("github_cache_minutes", 30))
+                uname = cfg.get("github_username", "IAndrexI")
+                tok = cfg.get("github_token") or None
+                res = fetch_github_stats(uname, tok)
+                if res:
+                    with _github_lock:
+                        global _cached_github_stats
+                        _cached_github_stats = res
+                    save_github_cache(res)
+                time.sleep(interval_min * 60)
+            else:
+                time.sleep(30)
+        except Exception:
+            time.sleep(60)
+
+
+def start_github_worker_if_needed(cfg):
+    global _github_worker_started
+    if cfg.get("enable_github_screen", True) and not _github_worker_started:
+        _github_worker_started = True
+        t = threading.Thread(target=_github_stats_worker, daemon=True)
+        t.start()
+
+
+def get_cached_github_stats(cfg):
+    global _cached_github_stats
+    with _github_lock:
+        if _cached_github_stats is not None:
+            return _cached_github_stats
+
+    cached = load_github_cache()
+    if cached:
+        with _github_lock:
+            _cached_github_stats = cached
+        return cached
+
+    uname = cfg.get("github_username", "IAndrexI")
+    tok = cfg.get("github_token") or None
+    fresh = fetch_github_stats(uname, tok)
+    if fresh:
+        with _github_lock:
+            _cached_github_stats = fresh
+        save_github_cache(fresh)
+        return fresh
+
+    return {"total_repos": 10, "last_updated": time.time()}
+
+
+# Free Games (Promotional Giveaways) Integration & Caching
+_free_games_worker_started = False
+_free_games_lock = threading.Lock()
+_cached_free_games = None
+FREE_GAMES_CACHE_FILE = os.path.join(LOG_DIR, "free_games_cache.json")
+
+
+def load_free_games_cache():
+    if os.path.exists(FREE_GAMES_CACHE_FILE):
+        try:
+            with open(FREE_GAMES_CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+
+def save_free_games_cache(data):
+    try:
+        with open(FREE_GAMES_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+
+def fetch_free_games():
+    """
+    Fetches active 100% free promotional PC games from:
+    1. Epic Games Store Weekly Free Games API
+    2. GamerPower PC Giveaways API (Steam & Epic)
+    Deduplicates and normalizes game titles.
+    """
+    games = []
+    seen_titles = set()
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    # 1. Epic Games Store Official Promotions API
+    try:
+        url = "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US"
+        resp = requests.get(url, headers=headers, timeout=8.0)
+        if resp.status_code == 200:
+            elements = resp.json().get("data", {}).get("Catalog", {}).get("searchStore", {}).get("elements", [])
+            for el in elements:
+                promos = el.get("promotions")
+                if not promos:
+                    continue
+                offers = promos.get("promotionalOffers")
+                if offers and len(offers) > 0:
+                    for offer in offers[0].get("promotionalOffers", []):
+                        discount = offer.get("discountSetting", {}).get("discountPercentage")
+                        if discount == 0:
+                            raw_t = el.get("title", "").strip()
+                            clean_t = raw_t.replace(" Giveaway", "").strip()
+                            norm = re.sub(r'[^a-z0-9]', '', clean_t.lower())
+                            if norm and norm not in seen_titles:
+                                seen_titles.add(norm)
+                                games.append({"title": clean_t, "platform": "Epic Games"})
+    except Exception:
+        pass
+
+    # 2. GamerPower Giveaways API (Steam and additional PC promotions)
+    try:
+        url = "https://www.gamerpower.com/api/giveaways?type=game&platform=pc"
+        resp = requests.get(url, headers=headers, timeout=8.0)
+        if resp.status_code == 200:
+            for g in resp.json():
+                platforms = g.get("platforms", "")
+                if "Steam" in platforms or "Epic Games" in platforms:
+                    raw_title = g.get("title", "")
+                    clean_t = raw_title.replace(" Giveaway", "").replace(" (Epic Games)", "").replace(" (Steam)", "").strip()
+                    norm = re.sub(r'[^a-z0-9]', '', clean_t.lower())
+                    if norm and norm not in seen_titles:
+                        seen_titles.add(norm)
+                        plat = "Steam" if "Steam" in platforms else "Epic Games"
+                        games.append({"title": clean_t, "platform": plat})
+    except Exception:
+        pass
+
+    return {
+        "games": games,
+        "count": len(games),
+        "last_updated": time.time()
+    }
+
+
+def _free_games_worker():
+    while True:
+        try:
+            cfg = load_config()
+            if cfg.get("enable_free_games_screen", True):
+                interval_min = float(cfg.get("free_games_cache_minutes", 60))
+                res = fetch_free_games()
+                if res and res.get("games"):
+                    with _free_games_lock:
+                        global _cached_free_games
+                        _cached_free_games = res
+                    save_free_games_cache(res)
+                time.sleep(interval_min * 60)
+            else:
+                time.sleep(30)
+        except Exception:
+            time.sleep(60)
+
+
+def start_free_games_worker_if_needed(cfg):
+    global _free_games_worker_started
+    if cfg.get("enable_free_games_screen", True) and not _free_games_worker_started:
+        _free_games_worker_started = True
+        t = threading.Thread(target=_free_games_worker, daemon=True)
+        t.start()
+
+
+def get_cached_free_games(cfg):
+    global _cached_free_games
+    with _free_games_lock:
+        if _cached_free_games is not None:
+            return _cached_free_games
+
+    cached = load_free_games_cache()
+    if cached:
+        with _free_games_lock:
+            _cached_free_games = cached
+        return cached
+
+    fresh = fetch_free_games()
+    if fresh and fresh.get("games"):
+        with _free_games_lock:
+            _cached_free_games = fresh
+        save_free_games_cache(fresh)
+        return fresh
+
+    return {"games": [], "count": 0, "last_updated": time.time()}
+
+
 KNOWN_GAMES = {
     "robloxplayerbeta.exe": ("Roblox", "roblox"),
     "robloxplayer.exe": ("Roblox", "roblox"),
@@ -1111,6 +1371,8 @@ DEFAULT_KRYPTEX_ICON = "https://www.kryptex.com/static/v2/favicons/android-chrom
 DEFAULT_CLOUDFLARE_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/cloudflare.png"
 DEFAULT_SPEED_ICON = DEFAULT_CLOUDFLARE_ICON
 DEFAULT_STEAM_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/steam.png"
+DEFAULT_GITHUB_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/github.png"
+DEFAULT_EPIC_GAMES_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/epic-games.png"
 
 # Built-in official Discord CDN application icons for instant zero-latency image matching
 BUILTIN_GAME_ICONS = {
@@ -1120,6 +1382,10 @@ BUILTIN_GAME_ICONS = {
     "speed": DEFAULT_SPEED_ICON,
     "speedtest": DEFAULT_SPEED_ICON,
     "steam": DEFAULT_STEAM_ICON,
+    "github": DEFAULT_GITHUB_ICON,
+    "epic": DEFAULT_EPIC_GAMES_ICON,
+    "epic_games": DEFAULT_EPIC_GAMES_ICON,
+    "freegames": DEFAULT_EPIC_GAMES_ICON,
     "roblox": "https://cdn.discordapp.com/app-icons/363445589247131668/f2b60e350a2097289b3b0b877495e55f.png",
     "minecraft": "https://cdn.discordapp.com/app-icons/1402418491272986635/166fbad351ecdd02d11a3b464748f66b.png",
     "valorant": "https://cdn.discordapp.com/app-icons/700136079562375258/11f81959f4fdd76ca6c39c59eac256c1.png",
@@ -1461,6 +1727,57 @@ def main():
                         "steam_data": steam_data
                     })
 
+            # Screen 7: GitHub Repositories (when enabled)
+            if cfg.get("enable_github_screen", True):
+                start_github_worker_if_needed(cfg)
+                gh_stats = get_cached_github_stats(cfg)
+                if gh_stats:
+                    total_r = gh_stats.get("total_repos", 0)
+                    proj_label = "Project Created" if total_r == 1 else "Projects Created"
+                    screens.append({
+                        "name": "GitHub Repositories",
+                        "screen_type": "github",
+                        "details": f"GitHub Repositories: {total_r}",
+                        "state": f"{total_r} {proj_label} | Protutech Cloud",
+                        "github_stats": gh_stats
+                    })
+
+            # Screen 8: Free PC Games Out Now (when enabled)
+            if cfg.get("enable_free_games_screen", True):
+                start_free_games_worker_if_needed(cfg)
+                fg_stats = get_cached_free_games(cfg)
+                games_list = fg_stats.get("games", []) if fg_stats else []
+                fg_count = len(games_list)
+
+                if fg_count == 1:
+                    fg_details = f"Free Game: {games_list[0]['title']}"
+                    fg_state = f"Claimable Now | {games_list[0]['platform']}"
+                elif fg_count > 1:
+                    short_titles = []
+                    for g in games_list:
+                        t = g["title"]
+                        if len(t) > 24 and ":" in t:
+                            t = t.split(":")[0].strip()
+                        short_titles.append(t)
+
+                    display_titles = " • ".join(short_titles[:2])
+                    if len(short_titles) > 2:
+                        display_titles += f" +{len(short_titles) - 2} more"
+
+                    fg_details = f"Free Games: {display_titles}"
+                    fg_state = f"{fg_count} Claimable Now | Epic & Steam"
+                else:
+                    fg_details = "Free PC Games: None Active"
+                    fg_state = "Checking Epic & Steam | Protutech Cloud"
+
+                screens.append({
+                    "name": "Free Games",
+                    "screen_type": "free_games",
+                    "details": fg_details,
+                    "state": fg_state,
+                    "free_games_data": fg_stats
+                })
+
             # Screen Selection: Manual lock or timed rotation
             active_mode = str(cfg.get("active_screen", "rotate")).strip().lower()
             selected_screen = None
@@ -1482,7 +1799,13 @@ def main():
                     "internet": "Network Speed",
                     "ping": "Network Speed",
                     "steam": "Steam Profile",
-                    "steamprofile": "Steam Profile"
+                    "steamprofile": "Steam Profile",
+                    "github": "GitHub Repositories",
+                    "git": "GitHub Repositories",
+                    "repos": "GitHub Repositories",
+                    "freegames": "Free Games",
+                    "freegame": "Free Games",
+                    "games": "Free Games"
                 }
                 target_name = alias_map.get(active_mode, active_mode)
                 for s in screens:
@@ -1596,6 +1919,41 @@ def main():
                 small_img = default_large
                 small_txt = "Protutech Cloud"
 
+            elif current_screen["name"] in ("GitHub Repositories", "GitHub"):
+                gh_img = cfg.get("github_image") or game_images.get("github")
+                if gh_img and (gh_img.startswith("http://") or gh_img.startswith("https://")):
+                    large_img = gh_img
+                elif gh_img in BUILTIN_GAME_ICONS:
+                    large_img = BUILTIN_GAME_ICONS[gh_img]
+                else:
+                    large_img = BUILTIN_GAME_ICONS.get("github", DEFAULT_GITHUB_ICON)
+
+                large_txt = "GitHub Repositories | Protutech Cloud"
+                small_img = default_large
+                small_txt = "Protutech Cloud"
+
+            elif current_screen["name"] == "Free Games":
+                fg_img = cfg.get("free_games_image") or game_images.get("freegames") or game_images.get("epic")
+                if fg_img and (fg_img.startswith("http://") or fg_img.startswith("https://")):
+                    large_img = fg_img
+                elif fg_img in BUILTIN_GAME_ICONS:
+                    large_img = BUILTIN_GAME_ICONS[fg_img]
+                else:
+                    large_img = BUILTIN_GAME_ICONS.get("freegames", DEFAULT_EPIC_GAMES_ICON)
+
+                fg_data = current_screen.get("free_games_data", {})
+                fg_list = fg_data.get("games", []) if fg_data else []
+                if fg_list:
+                    titles_str = ", ".join(g["title"] for g in fg_list[:4])
+                    large_txt = f"Free: {titles_str}"
+                    if len(large_txt) > 120:
+                        large_txt = large_txt[:117] + "..."
+                else:
+                    large_txt = "Free PC Games | Epic & Steam"
+
+                small_img = default_large
+                small_txt = "Protutech Cloud"
+
             game_start = int(current_screen.get("start_time", boot_time))
             activity_kwargs = {
                 "details": current_screen["details"],
@@ -1618,7 +1976,7 @@ def main():
             elif (cfg.get("show_party_badge", True) 
                   and stats["total_guests"] > 0 
                   and current_screen.get("screen_type") != "game"
-                  and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity", "Network Speed", "Steam Profile")):
+                  and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity", "Network Speed", "Steam Profile", "GitHub Repositories", "GitHub", "Free Games")):
                 activity_kwargs["party_size"] = [stats["running_guests"], stats["total_guests"]]
                 activity_kwargs["party_id"] = "protutech_guests"
 

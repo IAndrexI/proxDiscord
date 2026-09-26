@@ -22,3 +22,5 @@ bin/
 # Cache
 speed_cache.json
 steam_cache.json
+github_cache.json
+free_games_cache.json
