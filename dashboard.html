@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Protutech Cloud | Live Multi-User Hub</title>
+  <title>DiscordRPC | Protutech Cloud</title>
   <link rel="icon" href="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png">
   <style>
     :root {
@@ -611,10 +611,10 @@
       <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png" alt="Proxmox" class="brand-icon">
       <div>
         <div class="brand-title">
-          Protutech Cloud
+          DiscordRPC
           <span class="pulse-pill"><span class="pulse-dot"></span> LIVE SYNC</span>
         </div>
-        <div class="brand-subtitle">Real-time Discord Rich Presence & Multi-User System Hub</div>
+        <div class="brand-subtitle">Protutech Cloud • Multi-User System Hub</div>
       </div>
     </div>
     <div class="header-actions">
@@ -635,7 +635,7 @@
             <!-- Populated via /api/users -->
           </div>
           <div class="user-dropdown-footer">
-            <button class="directory-view-btn" onclick="openDirectoryModal()">👥 Browse All Users Directory</button>
+            <button class="directory-view-btn" onclick="openDirectoryModal()">👥 Browse All DiscordRPC Users</button>
           </div>
         </div>
       </div>
@@ -665,7 +665,7 @@
   </div>
 
   <footer class="footer">
-    Protutech VE Discord RPC • Multi-User System Dashboard • Powered by Cloudflare & Discord IPC
+    Protutech VE • DiscordRPC • Multi-User System Hub • Powered by Cloudflare & Discord IPC
   </footer>
 </div>
 
@@ -673,7 +673,7 @@
 <div class="modal-overlay" id="directory-modal" onclick="closeDirectoryModalOnBg(event)">
   <div class="modal-content">
     <div class="modal-header">
-      <div class="modal-title">👥 Community & Server Directory</div>
+      <div class="modal-title">👥 DiscordRPC Member Directory</div>
       <button class="modal-close-btn" onclick="closeDirectoryModal()">✕</button>
     </div>
     <div class="user-dropdown-search" style="padding: 0 0 10px 0;">
@@ -814,7 +814,7 @@
           <span class="status-dot-sm ${u.online ? 'online' : 'offline'}" style="margin-right: 4px;"></span>
           ${u.online ? 'Online' : 'Offline'}
         </div>
-        <div style="font-size: 0.72rem; color: var(--accent); margin-top: 4px;">View Dashboard →</div>
+        <div style="font-size: 0.72rem; color: var(--accent); margin-top: 4px;">View DiscordRPC →</div>
       `;
       grid.appendChild(card);
     });

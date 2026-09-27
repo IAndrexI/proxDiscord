@@ -36,7 +36,7 @@
   "enable_free_games_screen": true,
   "free_games_cache_minutes": 60,
   "enable_dashboard_button": true,
-  "dashboard_button_label": "View All Screens",
+  "dashboard_button_label": "View DiscordRPC",
   "dashboard_port": 8989,
   "dashboard_domain": "discordrpc.yourdomain.com",
   "dashboard_url": "https://discordrpc.yourdomain.com/?user=andrex",

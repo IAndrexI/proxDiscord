@@ -1167,7 +1167,7 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
         parsed_path = url_parts.path
         query_params = urllib.parse.parse_qs(url_parts.query)
 
-        if parsed_path in ("/", "/index.html"):
+        if parsed_path in ("/", "/index.html", "/dashboard.html", "/discordrpc", "/discordrpc.html"):
             content = b""
             if os.path.exists(DASHBOARD_HTML_PATH):
                 try:
@@ -1176,7 +1176,7 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
                 except Exception:
                     pass
             if not content:
-                content = b"<!DOCTYPE html><html><body><h1>Protutech Cloud Dashboard</h1><p>Dashboard HTML not found.</p></body></html>"
+                content = b"<!DOCTYPE html><html><body><h1>DiscordRPC</h1><p>DiscordRPC HTML not found.</p></body></html>"
 
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")

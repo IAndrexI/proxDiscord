@@ -7,7 +7,7 @@
  * 2. In Worker Settings -> Bindings -> Add KV Namespace:
  *    - Variable name: DASHBOARD_KV
  * 3. Paste this code into your worker and Deploy!
- * 4. Assign your custom domain (e.g. dash.protutech.vip or stats.protutech.vip).
+ * 4. Assign your custom domain (e.g. discordrpc.protutech.vip).
  */
 
 const CORS_HEADERS = {
