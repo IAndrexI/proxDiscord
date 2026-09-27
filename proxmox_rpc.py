@@ -1423,6 +1423,12 @@ KNOWN_GAMES = {
     "lethal company.exe": ("Lethal Company", "lethalcompany"),
     "marvelrivals.exe": ("Marvel Rivals", "marvelrivals"),
     "marvelrivals-win64-shipping.exe": ("Marvel Rivals", "marvelrivals"),
+    "curseforge.exe": ("CurseForge", "curseforge"),
+    "curseforgewindows.exe": ("CurseForge", "curseforge"),
+    "curse.agent.host.exe": ("CurseForge", "curseforge"),
+    "overwolf.exe": ("Overwolf", "overwolf"),
+    "overwolflauncher.exe": ("Overwolf", "overwolf"),
+    "overwolfbrowser.exe": ("Overwolf", "overwolf"),
 }
 
 _steam_app_cache = {}
@@ -1844,13 +1850,12 @@ def main():
             cfg = load_config()
             interval = float(cfg.get("update_interval_seconds", 6))
 
-            # Check game activity & sessions
+            # Check game activity & sessions (always detect for suppression & priority enforcement)
             now = time.time()
+            detected_games, all_game_pids = detect_active_games(cfg, max_games=5, return_pids=True)
             active_games = []
-            all_game_pids = set()
             if cfg.get("enable_game_activity", True):
-                active_games, all_game_pids = detect_active_games(cfg, max_games=3, return_pids=True)
-
+                active_games = detected_games
                 # Update multi-game tracking sessions
                 for g_info in active_games:
                     g_name = g_info["name"]
@@ -2369,65 +2374,65 @@ def main():
                 activity_kwargs["party_id"] = "protutech_guests"
 
             # Priority Display Enforcement & Game Suppression:
-            if not cfg.get("enable_game_activity", True):
-                target_pid = os.getpid()
-                # Actively purge and clear any game process activities from Discord RPC
-                try:
-                    _, running_game_pids = detect_active_games(cfg, max_games=5, return_pids=True)
-                    for p in running_game_pids | _previously_active_pids:
-                        if p != target_pid:
-                            try:
-                                rpc.clear(pid=p)
-                            except Exception:
-                                pass
-                    _previously_active_pids.clear()
-                except Exception:
-                    pass
-            else:
-                # Prevent any running game from appearing on top of Protutech!
-                # If any game is active, bind Protutech's Rich Presence directly to the active game's PID.
-                # This turns the game's Discord presence into Protutech, ensuring Protutech is ALWAYS the main display.
-                target_pid = os.getpid()
+            # If any game is active (CurseForge, Minecraft, Roblox, etc.), bind Protutech's Rich Presence
+            # directly to the active game's PID.
+            # This turns the game's Discord presence into Protutech, ensuring Protutech is ALWAYS the main display
+            # and prevents Discord from displaying "Playing CurseForge" or other detected games!
+            target_pid = os.getpid()
 
-                # If current screen is a specific game screen, bind to that specific game's PID
-                if current_screen.get("screen_type") == "game" and current_screen.get("game_info"):
-                    g_pid = current_screen["game_info"].get("pid")
-                    if g_pid and is_pid_alive(g_pid):
-                        target_pid = g_pid
-                elif active_games:
-                    # On non-game screens (Proxmox, Crypto, Speed, Steam, GitHub, Free Games),
-                    # bind to the primary active game PID so Discord displays Protutech as the active game
-                    for g in active_games:
-                        g_pid = g.get("pid")
-                        if g_pid and is_pid_alive(g_pid):
-                            target_pid = g_pid
+            # If current screen is a specific game screen, bind to that specific game's PID
+            if current_screen.get("screen_type") == "game" and current_screen.get("game_info"):
+                g_pid = current_screen["game_info"].get("pid")
+                if g_pid and is_pid_alive(g_pid):
+                    target_pid = g_pid
+            elif detected_games:
+                # Prioritize CurseForge specifically if running, then other games
+                chosen_pid = None
+                for target_slug in ("curseforge", "overwolf", "minecraft", "roblox"):
+                    for g in detected_games:
+                        if g.get("slug") == target_slug:
+                            for p in g.get("pids", [g.get("pid")]):
+                                if is_pid_alive(p):
+                                    chosen_pid = p
+                                    break
+                        if chosen_pid:
                             break
+                    if chosen_pid:
+                        break
+                if not chosen_pid:
+                    for g in detected_games:
+                        p = g.get("pid")
+                        if p and is_pid_alive(p):
+                            chosen_pid = p
+                            break
+                if chosen_pid:
+                    target_pid = chosen_pid
 
-                # Actively suppress and clear all other competing game PIDs
-                for p in all_game_pids:
-                    if p != target_pid and is_pid_alive(p):
-                        try:
-                            rpc.clear(pid=p)
-                        except Exception:
-                            pass
-
-                # If target_pid is a game process, clear Python's own PID to prevent duplicate ghost activities
-                if target_pid != os.getpid():
+            # Actively suppress and clear all other competing game PIDs
+            for p in (all_game_pids | _previously_active_pids):
+                if p != target_pid and is_pid_alive(p):
                     try:
-                        rpc.clear(pid=os.getpid())
+                        rpc.clear(pid=p)
                     except Exception:
                         pass
 
-                # Clear any previously tracked game PIDs that have now closed
-                for p in list(_previously_active_pids):
-                    if p not in all_game_pids and p != target_pid:
-                        try:
-                            rpc.clear(pid=p)
-                        except Exception:
-                            pass
-                        _previously_active_pids.discard(p)
+            # If target_pid is a game process, clear Python's own PID to prevent duplicate ghost activities
+            if target_pid != os.getpid():
+                try:
+                    rpc.clear(pid=os.getpid())
+                except Exception:
+                    pass
 
-                _previously_active_pids.update(all_game_pids)
+            # Clear any previously tracked game PIDs that have now closed
+            for p in list(_previously_active_pids):
+                if p not in all_game_pids and p != target_pid:
+                    try:
+                        rpc.clear(pid=p)
+                    except Exception:
+                        pass
+                    _previously_active_pids.discard(p)
+
+            _previously_active_pids.update(all_game_pids)
 
             # Update Discord Rich Presence on the chosen priority PID
             rpc.update(pid=target_pid, **activity_kwargs)
