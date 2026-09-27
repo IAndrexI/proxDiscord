@@ -1423,12 +1423,6 @@ KNOWN_GAMES = {
     "lethal company.exe": ("Lethal Company", "lethalcompany"),
     "marvelrivals.exe": ("Marvel Rivals", "marvelrivals"),
     "marvelrivals-win64-shipping.exe": ("Marvel Rivals", "marvelrivals"),
-    "curseforge.exe": ("CurseForge", "curseforge"),
-    "curseforgewindows.exe": ("CurseForge", "curseforge"),
-    "curse.agent.host.exe": ("CurseForge", "curseforge"),
-    "overwolf.exe": ("Overwolf", "overwolf"),
-    "overwolflauncher.exe": ("Overwolf", "overwolf"),
-    "overwolfbrowser.exe": ("Overwolf", "overwolf"),
 }
 
 _steam_app_cache = {}
@@ -2374,39 +2368,38 @@ def main():
                 activity_kwargs["party_id"] = "protutech_guests"
 
             # Priority Display Enforcement & Game Suppression:
-            # If any game is active (CurseForge, Minecraft, Roblox, etc.), bind Protutech's Rich Presence
-            # directly to the active game's PID.
-            # This turns the game's Discord presence into Protutech, ensuring Protutech is ALWAYS the main display
-            # and prevents Discord from displaying "Playing CurseForge" or other detected games!
             target_pid = os.getpid()
 
-            # If current screen is a specific game screen, bind to that specific game's PID
-            if current_screen.get("screen_type") == "game" and current_screen.get("game_info"):
-                g_pid = current_screen["game_info"].get("pid")
-                if g_pid and is_pid_alive(g_pid):
-                    target_pid = g_pid
-            elif detected_games:
-                # Prioritize CurseForge specifically if running, then other games
-                chosen_pid = None
-                for target_slug in ("curseforge", "overwolf", "minecraft", "roblox"):
-                    for g in detected_games:
-                        if g.get("slug") == target_slug:
-                            for p in g.get("pids", [g.get("pid")]):
-                                if is_pid_alive(p):
-                                    chosen_pid = p
-                                    break
+            if not cfg.get("enable_game_activity", True):
+                # When gaming activity is disabled, run purely on Python's PID and suppress all games
+                target_pid = os.getpid()
+            else:
+                # If current screen is a specific game screen, bind to that specific game's PID
+                if current_screen.get("screen_type") == "game" and current_screen.get("game_info"):
+                    g_pid = current_screen["game_info"].get("pid")
+                    if g_pid and is_pid_alive(g_pid):
+                        target_pid = g_pid
+                elif detected_games:
+                    chosen_pid = None
+                    for target_slug in ("minecraft", "roblox"):
+                        for g in detected_games:
+                            if g.get("slug") == target_slug:
+                                for p in g.get("pids", [g.get("pid")]):
+                                    if is_pid_alive(p):
+                                        chosen_pid = p
+                                        break
+                            if chosen_pid:
+                                break
                         if chosen_pid:
                             break
+                    if not chosen_pid:
+                        for g in detected_games:
+                            p = g.get("pid")
+                            if p and is_pid_alive(p):
+                                chosen_pid = p
+                                break
                     if chosen_pid:
-                        break
-                if not chosen_pid:
-                    for g in detected_games:
-                        p = g.get("pid")
-                        if p and is_pid_alive(p):
-                            chosen_pid = p
-                            break
-                if chosen_pid:
-                    target_pid = chosen_pid
+                        target_pid = chosen_pid
 
             # Actively suppress and clear all other competing game PIDs
             for p in (all_game_pids | _previously_active_pids):
