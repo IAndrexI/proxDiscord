@@ -1367,6 +1367,80 @@ import atexit
 atexit.register(_cleanup_cloudflared)
 
 
+def patch_discord_game_utils():
+    """
+    Ensures Discord's native game identification module (discord_game_utils)
+    does not report launcher/background apps like CurseForge or Overwolf as games,
+    persisting across Discord auto-updates.
+    """
+    try:
+        local_app = os.environ.get("LOCALAPPDATA", "")
+        if not local_app:
+            return
+        discord_dir = os.path.join(local_app, "Discord")
+        if not os.path.exists(discord_dir):
+            return
+        import glob
+        pattern = os.path.join(discord_dir, "app-*", "modules", "discord_game_utils-*", "discord_game_utils", "index.js")
+        patch_code = '''"use strict";
+const native = require('./discord_game_utils.node');
+
+const BLOCKED_NAMES = [
+  'curseforge',
+  'curse.agent.host',
+  'overwolf'
+];
+
+const originalIdentifyGame = native.identifyGame;
+if (typeof originalIdentifyGame === 'function') {
+  native.identifyGame = function(pid, callback) {
+    return originalIdentifyGame.call(native, pid, (err, res) => {
+      try {
+        if (!err && res) {
+          const name = (res.name || '').toLowerCase();
+          const exe = (res.executableName || '').toLowerCase();
+          const pub = (res.publisher || '').toLowerCase();
+          if (BLOCKED_NAMES.some(b => name.includes(b) || exe.includes(b) || pub.includes(b))) {
+            return callback(3, {
+              name: '',
+              executableName: res.executableName || '',
+              distributor: '',
+              sku: '',
+              publisher: '',
+              iconHash: '',
+              icon: ''
+            });
+          }
+        }
+      } catch (e) {}
+      return callback(err, res);
+    });
+  };
+}
+
+module.exports = native;
+'''
+        for idx_file in glob.glob(pattern):
+            try:
+                with open(idx_file, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                if "BLOCKED_NAMES" not in content:
+                    bak_file = idx_file + ".bak"
+                    if not os.path.exists(bak_file):
+                        try:
+                            with open(bak_file, "w", encoding="utf-8") as f:
+                                f.write(content)
+                        except Exception:
+                            pass
+                    with open(idx_file, "w", encoding="utf-8") as f:
+                        f.write(patch_code)
+                    print(f"[INFO] Auto-patched Discord game detector: {idx_file}", flush=True)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 KNOWN_GAMES = {
     "robloxplayerbeta.exe": ("Roblox", "roblox"),
     "robloxplayer.exe": ("Roblox", "roblox"),
@@ -1810,7 +1884,7 @@ def main():
     print(f"  Badges:    {'Enabled' if cfg.get('show_party_badge', True) else 'Disabled'}", flush=True)
     print(f"  Kryptex:   {'Enabled' if cfg.get('enable_kryptex_screen', True) else 'Disabled'}", flush=True)
     print(f"  Gaming:    {'Enabled' if cfg.get('enable_game_activity', True) else 'Disabled'}", flush=True)
-    print("=" * 60, flush=True)
+    patch_discord_game_utils()
 
     rpc = None
     boot_time = int(time.time())
@@ -2452,7 +2526,13 @@ def main():
             rpc = None
         except Exception as e:
             print(f"[{time.strftime('%X')}] [ERROR] Unexpected: {e}", flush=True)
-            if "pipe" in str(e).lower() or "socket" in str(e).lower():
+            err_str = str(e).lower()
+            if any(k in err_str for k in ("pipe", "socket", "connect", "client", "closed", "reset", "event", "broken")):
+                try:
+                    if rpc:
+                        rpc.close()
+                except Exception:
+                    pass
                 rpc = None
 
         # 4. Exact per-screen timing: sleeps exactly (interval - elapsed) seconds
