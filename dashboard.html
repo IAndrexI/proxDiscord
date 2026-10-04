@@ -491,6 +491,73 @@
       color: #57f287;
     }
 
+    /* Free Games Card Styling */
+    .free-game-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      text-decoration: none;
+      color: inherit;
+      transition: all 0.2s ease;
+    }
+
+    .free-game-item:hover {
+      background: rgba(88, 101, 242, 0.15);
+      border-color: rgba(88, 101, 242, 0.4);
+      transform: translateX(2px);
+    }
+
+    .free-game-title {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .free-game-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .free-badge {
+      background: rgba(35, 165, 90, 0.2);
+      border: 1px solid rgba(35, 165, 90, 0.4);
+      color: #57f287;
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .worth-strike {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-decoration: line-through;
+    }
+
+    .platform-tag {
+      font-size: 0.68rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #b5c2f8;
+      font-weight: 500;
+    }
+
     /* Community Directory Modal */
     .modal-overlay {
       position: fixed;
@@ -934,19 +1001,50 @@
       } else if (s.name === "Free Games" && s.free_games_data) {
         const fg = s.free_games_data;
         const gamesList = fg.games || [];
-        extraContent = `
-          <div class="chips-group" style="margin-top: 8px;">
-            ${gamesList.map(g => `<span class="chip green">Free: ${g.title} (${g.platform})</span>`).join('')}
-          </div>
-        `;
+        if (gamesList.length > 0) {
+          extraContent = `
+            <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 6px;">
+              ${gamesList.map(g => {
+                const worthHtml = (g.worth && g.worth !== "N/A" && g.worth !== "Free") ? `<span class="worth-strike">${g.worth}</span>` : '';
+                const claimUrl = g.url || 'https://www.gamerpower.com';
+                return `
+                  <a href="${claimUrl}" target="_blank" rel="noopener noreferrer" class="free-game-item">
+                    <div class="free-game-title">
+                      <span>🎁</span>
+                      <span title="${g.title}">${g.title}</span>
+                    </div>
+                    <div class="free-game-meta">
+                      ${worthHtml}
+                      <span class="platform-tag">${g.platform || 'PC'}</span>
+                      <span class="free-badge">CLAIM FREE ↗</span>
+                    </div>
+                  </a>
+                `;
+              }).join('')}
+              <div style="margin-top: 6px; display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; color: var(--text-muted); padding: 0 2px;">
+                <span>Verified via GamerPower API</span>
+                <a href="https://www.gamerpower.com" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 600;">GamerPower.com ↗</a>
+              </div>
+            </div>
+          `;
+        } else {
+          extraContent = `
+            <div class="chips-group" style="margin-top: 8px;">
+              <span class="chip">No active promos right now</span>
+              <a href="https://www.gamerpower.com" target="_blank" rel="noopener noreferrer" class="chip highlight" style="text-decoration:none;">Check GamerPower ↗</a>
+            </div>
+          `;
+        }
       }
+
+      const subtitle = s.name === "Free Games" ? "GamerPower & Epic Tracker" : (s.screen_type || 'System Screen');
 
       card.innerHTML = `
         <div class="card-header">
           <img src="${iconUrl}" class="card-icon" onerror="this.src='https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png'">
           <div>
             <div class="card-title">${s.name}</div>
-            <div class="card-subtitle">${s.screen_type || 'System Screen'}</div>
+            <div class="card-subtitle">${subtitle}</div>
           </div>
         </div>
         <div class="card-body">

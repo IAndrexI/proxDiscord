@@ -1029,10 +1029,8 @@ def save_free_games_cache(data):
 
 def fetch_free_games():
     """
-    Fetches active 100% free promotional PC games from:
-    1. Epic Games Store Weekly Free Games API
-    2. GamerPower PC Giveaways API (Steam & Epic)
-    Deduplicates and normalizes game titles.
+    Fetches active 100% free promotional PC games using GamerPower (the #1 free games giveaway tracker)
+    and Epic Games Store promotions API, with direct claim links, platform info, and worth metadata.
     """
     games = []
     seen_titles = set()
@@ -1040,7 +1038,34 @@ def fetch_free_games():
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    # 1. Epic Games Store Official Promotions API
+    # 1. GamerPower Giveaways API (Primary tracker for Steam, Epic, GOG freebies)
+    try:
+        url = "https://www.gamerpower.com/api/giveaways?type=game&platform=pc"
+        resp = requests.get(url, headers=headers, timeout=8.0)
+        if resp.status_code == 200:
+            for g in resp.json():
+                platforms = g.get("platforms", "")
+                if any(p in platforms for p in ("Steam", "Epic Games", "GOG")):
+                    raw_title = g.get("title", "")
+                    clean_t = re.sub(r'\s*\((Epic Games|Steam|GOG|PC)\)\s*', '', raw_title, flags=re.I)
+                    clean_t = clean_t.replace(" Giveaway", "").strip()
+                    norm = re.sub(r'[^a-z0-9]', '', clean_t.lower())
+                    if norm and norm not in seen_titles:
+                        seen_titles.add(norm)
+                        plat = "Steam" if "Steam" in platforms else ("Epic Games" if "Epic Games" in platforms else "GOG")
+                        claim_url = g.get("open_giveaway_url") or g.get("gamerpower_url") or "https://www.gamerpower.com"
+                        games.append({
+                            "title": clean_t,
+                            "platform": plat,
+                            "worth": g.get("worth"),
+                            "url": claim_url,
+                            "thumbnail": g.get("thumbnail"),
+                            "gamerpower_url": g.get("gamerpower_url") or "https://www.gamerpower.com"
+                        })
+    except Exception:
+        pass
+
+    # 2. Epic Games Store Official Promotions API (Direct weekly verification)
     try:
         url = "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US"
         resp = requests.get(url, headers=headers, timeout=8.0)
@@ -1060,31 +1085,24 @@ def fetch_free_games():
                             norm = re.sub(r'[^a-z0-9]', '', clean_t.lower())
                             if norm and norm not in seen_titles:
                                 seen_titles.add(norm)
-                                games.append({"title": clean_t, "platform": "Epic Games"})
-    except Exception:
-        pass
-
-    # 2. GamerPower Giveaways API (Steam and additional PC promotions)
-    try:
-        url = "https://www.gamerpower.com/api/giveaways?type=game&platform=pc"
-        resp = requests.get(url, headers=headers, timeout=8.0)
-        if resp.status_code == 200:
-            for g in resp.json():
-                platforms = g.get("platforms", "")
-                if "Steam" in platforms or "Epic Games" in platforms:
-                    raw_title = g.get("title", "")
-                    clean_t = raw_title.replace(" Giveaway", "").replace(" (Epic Games)", "").replace(" (Steam)", "").strip()
-                    norm = re.sub(r'[^a-z0-9]', '', clean_t.lower())
-                    if norm and norm not in seen_titles:
-                        seen_titles.add(norm)
-                        plat = "Steam" if "Steam" in platforms else "Epic Games"
-                        games.append({"title": clean_t, "platform": plat})
+                                product_slug = el.get("productSlug") or (el.get("catalogNs", {}).get("mappings", [{}])[0].get("pageSlug") if el.get("catalogNs", {}).get("mappings") else None)
+                                page_url = f"https://store.epicgames.com/p/{product_slug}" if product_slug else "https://store.epicgames.com/free-games"
+                                games.append({
+                                    "title": clean_t,
+                                    "platform": "Epic Games",
+                                    "worth": "Free",
+                                    "url": page_url,
+                                    "thumbnail": None,
+                                    "gamerpower_url": "https://www.gamerpower.com"
+                                })
     except Exception:
         pass
 
     return {
         "games": games,
         "count": len(games),
+        "source": "GamerPower",
+        "source_url": "https://www.gamerpower.com",
         "last_updated": time.time()
     }
 
@@ -1708,7 +1726,7 @@ DEFAULT_KRYPTEX_ICON = "https://www.kryptex.com/static/v2/favicons/android-chrom
 DEFAULT_CLOUDFLARE_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/cloudflare.png"
 DEFAULT_SPEED_ICON = DEFAULT_CLOUDFLARE_ICON
 DEFAULT_STEAM_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/steam.png"
-DEFAULT_GITHUB_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/github.png"
+DEFAULT_GITHUB_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/github.png"
 DEFAULT_EPIC_GAMES_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/epic-games.png"
 
 # Built-in official Discord CDN application icons for instant zero-latency image matching
@@ -2112,10 +2130,10 @@ def main():
                         display_titles += f" +{len(short_titles) - 2} more"
 
                     fg_details = f"Free Games: {display_titles}"
-                    fg_state = f"{fg_count} Claimable Now | Epic & Steam"
+                    fg_state = f"{fg_count} Claimable Now | GamerPower & Epic"
                 else:
                     fg_details = "Free PC Games: None Active"
-                    fg_state = "Checking Epic & Steam | Protutech Cloud"
+                    fg_state = "GamerPower Tracker | Protutech Cloud"
 
                 screens.append({
                     "name": "Free Games",
@@ -2389,7 +2407,7 @@ def main():
                     if len(large_txt) > 120:
                         large_txt = large_txt[:117] + "..."
                 else:
-                    large_txt = "Free PC Games | Epic & Steam"
+                    large_txt = "Free Games Tracker | GamerPower"
 
                 small_img = default_large
                 small_txt = "Protutech Cloud"
