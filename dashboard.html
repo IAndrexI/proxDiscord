@@ -985,9 +985,12 @@
         const st = s.steam_data;
         extraContent = `
           <div class="chips-group" style="margin-top: 8px;">
-            <span class="chip highlight">Level ${st.level || 0}</span>
-            <span class="chip">${st.games || 0} Games</span>
-            <span class="chip">${st.items || 0} Inventory Items</span>
+            <span class="chip green">🏆 ${st.achievements || 0} Achievements</span>
+            <span class="chip highlight">🎖️ ${st.badges || 0} Badges</span>
+            <span class="chip">⭐ Level ${st.level || 0}</span>
+            <span class="chip">🎮 ${st.games || 0} Games</span>
+            ${st.perfect_games && st.perfect_games !== '0' ? `<span class="chip highlight">👑 ${st.perfect_games} Perfect</span>` : ''}
+            <span class="chip">🎒 ${st.items || 0} Items</span>
           </div>
         `;
       } else if (s.name === "GitHub Repositories" && s.github_stats) {

@@ -753,7 +753,8 @@ def get_local_steam_id64():
 
 def fetch_steam_profile(steam_id=None):
     """
-    Fetch public Steam profile details: avatar, persona name, level, games count, and items count.
+    Fetch public Steam profile details: avatar, persona name, level, games count, items count,
+    badges count, achievements count, and perfect games count.
     """
     sid = str(steam_id).strip() if steam_id else get_local_steam_id64()
     if not sid:
@@ -764,6 +765,9 @@ def fetch_steam_profile(steam_id=None):
     level = "0"
     games_count = "0"
     items_count = "0"
+    badges_count = "0"
+    achievements_count = "0"
+    perfect_games_count = "0"
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -814,6 +818,27 @@ def fetch_steam_profile(steam_id=None):
                 itm = re.search(r'href="[^"]*/inventory[/?][^"]*".*?<span class="profile_count_link_total">\s*([\d,]+)\s*</span>', html, re.DOTALL | re.IGNORECASE)
             if itm:
                 items_count = itm.group(1).strip()
+
+            # Badges
+            bdg = re.search(r'Total Badges Earned\s*</div>\s*<div class="value">\s*([\d,]+)\s*</div>', html, re.IGNORECASE)
+            if not bdg:
+                bdg = re.search(r'<div class="value">\s*([\d,]+)\s*</div>\s*<div class="label">\s*Total Badges Earned\s*</div>', html, re.IGNORECASE)
+            if not bdg:
+                bdg = re.search(r'href="[^"]*/badges[/?][^"]*".*?<span class="profile_count_link_total">\s*([\d,]+)\s*</span>', html, re.DOTALL | re.IGNORECASE)
+            if bdg:
+                badges_count = bdg.group(1).strip()
+
+            # Achievements
+            ach = re.search(r'<div class="value">\s*([\d,]+)\s*</div>\s*<div class="label">\s*Achievements\s*</div>', html, re.IGNORECASE)
+            if not ach:
+                ach = re.search(r'Achievements.*?<span class="profile_count_link_total">\s*([\d,]+)\s*</span>', html, re.DOTALL | re.IGNORECASE)
+            if ach:
+                achievements_count = ach.group(1).strip()
+
+            # Perfect Games
+            pfg = re.search(r'<div class="value">\s*([\d,]+)\s*</div>\s*<div class="label">\s*Perfect Games\s*</div>', html, re.IGNORECASE)
+            if pfg:
+                perfect_games_count = pfg.group(1).strip()
     except Exception:
         pass
 
@@ -824,6 +849,9 @@ def fetch_steam_profile(steam_id=None):
         "level": level,
         "games": games_count,
         "items": items_count,
+        "badges": badges_count,
+        "achievements": achievements_count,
+        "perfect_games": perfect_games_count,
         "last_updated": time.time()
     }
 
@@ -1728,6 +1756,8 @@ DEFAULT_CLOUDFLARE_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main
 DEFAULT_SPEED_ICON = DEFAULT_CLOUDFLARE_ICON
 DEFAULT_STEAM_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/steam.png"
 DEFAULT_GITHUB_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/github.png"
+DEFAULT_DVD_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/dvd.png"
+DEFAULT_FREE_GAMES_ICON = DEFAULT_DVD_ICON
 DEFAULT_EPIC_GAMES_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/epic-games.png"
 
 # Built-in official Discord CDN application icons for instant zero-latency image matching
@@ -1741,7 +1771,9 @@ BUILTIN_GAME_ICONS = {
     "github": DEFAULT_GITHUB_ICON,
     "epic": DEFAULT_EPIC_GAMES_ICON,
     "epic_games": DEFAULT_EPIC_GAMES_ICON,
-    "freegames": DEFAULT_EPIC_GAMES_ICON,
+    "dvd": DEFAULT_DVD_ICON,
+    "disc": DEFAULT_DVD_ICON,
+    "freegames": DEFAULT_FREE_GAMES_ICON,
     "roblox": "https://cdn.discordapp.com/app-icons/363445589247131668/f2b60e350a2097289b3b0b877495e55f.png",
     "minecraft": "https://cdn.discordapp.com/app-icons/1402418491272986635/166fbad351ecdd02d11a3b464748f66b.png",
     "valorant": "https://cdn.discordapp.com/app-icons/700136079562375258/11f81959f4fdd76ca6c39c59eac256c1.png",
@@ -2085,11 +2117,13 @@ def main():
                 start_steam_worker_if_needed(cfg)
                 steam_data = get_cached_steam_stats(cfg)
                 if steam_data:
+                    achs = steam_data.get("achievements") or "0"
+                    bdgs = steam_data.get("badges") or "0"
                     screens.append({
                         "name": "Steam Profile",
                         "screen_type": "steam",
                         "details": f"Steam: {steam_data['persona']} | Level {steam_data['level']}",
-                        "state": f"{steam_data['games']} Games | {steam_data['items']} Items",
+                        "state": f"{achs} Achievements | {bdgs} Badges",
                         "steam_data": steam_data
                     })
 
@@ -2210,7 +2244,7 @@ def main():
                             elif s_name in ("GitHub Repositories", "GitHub"):
                                 s_icon = DEFAULT_GITHUB_ICON
                             elif s_name == "Free Games":
-                                s_icon = DEFAULT_EPIC_GAMES_ICON
+                                s_icon = DEFAULT_FREE_GAMES_ICON
                             elif s_name == "Steam Profile":
                                 s_icon = s.get("steam_data", {}).get("avatar_url") if s.get("steam_data") else default_large
                             elif s_name == "Minecraft":
@@ -2374,7 +2408,11 @@ def main():
 
                 persona = s_data.get("persona", "Steam User")
                 level = s_data.get("level", "0")
-                large_txt = f"{persona} | Level {level}"
+                achs = s_data.get("achievements") or "0"
+                bdgs = s_data.get("badges") or "0"
+                large_txt = f"{persona} | Level {level} • {achs} Achs • {bdgs} Badges"
+                if len(large_txt) > 120:
+                    large_txt = large_txt[:117] + "..."
                 small_img = default_large
                 small_txt = "Protutech Cloud"
 
@@ -2392,13 +2430,13 @@ def main():
                 small_txt = "Protutech Cloud"
 
             elif current_screen["name"] == "Free Games":
-                fg_img = cfg.get("free_games_image") or game_images.get("freegames") or game_images.get("epic")
+                fg_img = cfg.get("free_games_image") or game_images.get("freegames") or game_images.get("dvd") or game_images.get("disc")
                 if fg_img and (fg_img.startswith("http://") or fg_img.startswith("https://")):
                     large_img = fg_img
                 elif fg_img in BUILTIN_GAME_ICONS:
                     large_img = BUILTIN_GAME_ICONS[fg_img]
                 else:
-                    large_img = BUILTIN_GAME_ICONS.get("freegames", DEFAULT_EPIC_GAMES_ICON)
+                    large_img = BUILTIN_GAME_ICONS.get("freegames", DEFAULT_FREE_GAMES_ICON)
 
                 fg_data = current_screen.get("free_games_data", {})
                 fg_list = fg_data.get("games", []) if fg_data else []
