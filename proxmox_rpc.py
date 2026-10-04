@@ -1047,8 +1047,9 @@ def fetch_free_games():
                 platforms = g.get("platforms", "")
                 if any(p in platforms for p in ("Steam", "Epic Games", "GOG")):
                     raw_title = g.get("title", "")
-                    clean_t = re.sub(r'\s*\((Epic Games|Steam|GOG|PC)\)\s*', '', raw_title, flags=re.I)
-                    clean_t = clean_t.replace(" Giveaway", "").strip()
+                    clean_t = re.sub(r'\bGiveaway\b', '', raw_title, flags=re.I)
+                    clean_t = re.sub(r'\s*\([^)]*\)\s*', ' ', clean_t)
+                    clean_t = re.sub(r'\s+', ' ', clean_t).strip()
                     norm = re.sub(r'[^a-z0-9]', '', clean_t.lower())
                     if norm and norm not in seen_titles:
                         seen_titles.add(norm)
