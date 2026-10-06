@@ -1198,15 +1198,43 @@ _dashboard_state = {
 _users_store = {}
 _dashboard_lock = threading.Lock()
 _dashboard_server_started = False
+_custom_trackers_cache = {}
 DASHBOARD_HTML_PATH = os.path.join(LOG_DIR, "dashboard.html")
 
 
 class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
+    def is_request_host(self):
+        try:
+            cfg = load_config()
+            configured_key = str(cfg.get("host_key", "andrex-host-2026")).strip()
+
+            req_key = self.headers.get("X-Host-Key", "").strip()
+            if not req_key:
+                auth_hdr = self.headers.get("Authorization", "").strip()
+                if auth_hdr.startswith("Bearer "):
+                    req_key = auth_hdr[7:].strip()
+
+            url_parts = urllib.parse.urlparse(self.path)
+            q = urllib.parse.parse_qs(url_parts.query)
+            if not req_key:
+                req_key = q.get("key", [""])[0] or q.get("host_key", [""])[0]
+
+            if req_key and configured_key and req_key == configured_key:
+                return True
+
+            client_ip = self.client_address[0]
+            has_proxy = bool(self.headers.get("CF-Connecting-IP") or self.headers.get("X-Forwarded-For"))
+            if not has_proxy and client_ip in ("127.0.0.1", "::1", "localhost"):
+                return True
+        except Exception:
+            pass
+        return False
+
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Host-Key")
         self.end_headers()
 
     def do_GET(self):
@@ -1230,6 +1258,54 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(content)))
             self.end_headers()
             self.wfile.write(content)
+
+        elif parsed_path == "/api/auth/verify":
+            is_host = self.is_request_host()
+            payload = json.dumps({"is_host": is_host}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        elif parsed_path == "/api/config":
+            if not self.is_request_host():
+                self.send_response(403)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(b'{"error": "Forbidden: Main host access required"}')
+                return
+
+            cfg = load_config()
+            safe_cfg = {
+                "update_interval_seconds": cfg.get("update_interval_seconds", 6),
+                "active_screen": cfg.get("active_screen", "rotate"),
+                "enable_proxmox_screen": cfg.get("enable_proxmox_screen", True),
+                "enable_kryptex_screen": cfg.get("enable_kryptex_screen", True),
+                "enable_minecraft_screen": cfg.get("enable_minecraft_screen", True),
+                "enable_speed_screen": cfg.get("enable_speed_screen", True),
+                "enable_steam_screen": cfg.get("enable_steam_screen", True),
+                "enable_github_screen": cfg.get("enable_github_screen", True),
+                "enable_free_games_screen": cfg.get("enable_free_games_screen", True),
+                "enable_game_activity": cfg.get("enable_game_activity", False),
+                "speedtest_interval_minutes": cfg.get("speedtest_interval_minutes", 30),
+                "steam_cache_minutes": cfg.get("steam_cache_minutes", 15),
+                "github_cache_minutes": cfg.get("github_cache_minutes", 30),
+                "free_games_cache_minutes": cfg.get("free_games_cache_minutes", 60),
+                "hidden_screens": cfg.get("hidden_screens", []),
+                "custom_trackers": cfg.get("custom_trackers", []),
+                "host_key": cfg.get("host_key", "andrex-host-2026"),
+                "is_host": True
+            }
+            payload = json.dumps(safe_cfg).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
 
         elif parsed_path in ("/api/users", "/api/members"):
             with _dashboard_lock:
@@ -1273,6 +1349,7 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
 
         elif parsed_path in ("/api/stats", "/api/screens"):
             requested_user = query_params.get("user", [None])[0]
+            is_host = self.is_request_host()
             with _dashboard_lock:
                 if requested_user and requested_user.lower() not in _users_store:
                     USERS_FILE = os.path.join(LOG_DIR, "users.json")
@@ -1286,9 +1363,17 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
                             pass
 
                 if requested_user and requested_user.lower() in _users_store:
-                    target_data = _users_store[requested_user.lower()]
+                    target_data = dict(_users_store[requested_user.lower()])
                 else:
-                    target_data = _dashboard_state
+                    target_data = dict(_dashboard_state)
+
+                if "screens" in target_data:
+                    cfg_now = load_config()
+                    hidden_set = set(cfg_now.get("hidden_screens", []))
+                    if not is_host:
+                        target_data["screens"] = [s for s in target_data["screens"] if s.get("name") not in hidden_set]
+
+                target_data["is_host"] = is_host
                 payload = json.dumps(target_data).encode("utf-8")
 
             self.send_response(200)
@@ -1304,7 +1389,54 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed_path = self.path.split("?")[0]
-        if parsed_path == "/api/push":
+        if parsed_path == "/api/config":
+            if not self.is_request_host():
+                self.send_response(403)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(b'{"error": "Forbidden: Main host access required"}')
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length)
+                payload = json.loads(body.decode("utf-8"))
+
+                cfg = load_config()
+                allowed_keys = [
+                    "update_interval_seconds", "active_screen",
+                    "enable_proxmox_screen", "enable_kryptex_screen",
+                    "enable_minecraft_screen", "enable_speed_screen",
+                    "enable_steam_screen", "enable_github_screen",
+                    "enable_free_games_screen", "enable_game_activity",
+                    "speedtest_interval_minutes", "steam_cache_minutes",
+                    "github_cache_minutes", "free_games_cache_minutes",
+                    "hidden_screens", "custom_trackers", "host_key"
+                ]
+
+                for k in allowed_keys:
+                    if k in payload:
+                        cfg[k] = payload[k]
+
+                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, indent=2)
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "message": "Configuration saved", "config": cfg}).encode("utf-8"))
+                return
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+                return
+
+        elif parsed_path == "/api/push":
             try:
                 length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(length)
@@ -2002,13 +2134,14 @@ def main():
             screens = []
 
             # Screen 1: Proxmox Overview (Performance, Workloads & Storage)
-            node_name = stats["node"]
-            node_tag = f"{label}: {node_name}" if label.lower() != node_name.lower() else label
-            screens.append({
-                "name": "Proxmox Overview",
-                "details": f"{node_tag} (Up: {stats['uptime']}) | {stats['running_vms']} VMs | {stats['running_lxcs']} LXCs",
-                "state": f"CPU: {stats['cpu_pct']:.1f}% | RAM: {stats['mem_pct']:.0f}% | Storage: {stats['storage_used_gb']:.0f}G/{stats['storage_total_tb']:.1f}TB"
-            })
+            if cfg.get("enable_proxmox_screen", True):
+                node_name = stats["node"]
+                node_tag = f"{label}: {node_name}" if label.lower() != node_name.lower() else label
+                screens.append({
+                    "name": "Proxmox Overview",
+                    "details": f"{node_tag} (Up: {stats['uptime']}) | {stats['running_vms']} VMs | {stats['running_lxcs']} LXCs",
+                    "state": f"CPU: {stats['cpu_pct']:.1f}% | RAM: {stats['mem_pct']:.0f}% | Storage: {stats['storage_used_gb']:.0f}G/{stats['storage_total_tb']:.1f}TB"
+                })
 
             # Screen 2: Cryptocurrency Mining Status (when enabled)
             k_stats = None
@@ -2178,6 +2311,59 @@ def main():
                     "free_games_data": fg_stats
                 })
 
+            # Screen 9+: Custom Trackers (when configured)
+            for ct in cfg.get("custom_trackers", []):
+                if ct.get("enabled", True):
+                    ct_name = ct.get("name", "Custom Tracker")
+                    ct_details = ct.get("details", "")
+                    ct_state = ct.get("state", "Protutech Cloud")
+                    ct_icon = ct.get("icon_url") or DEFAULT_DVD_ICON
+                    
+                    check_url = ct.get("check_url")
+                    if check_url:
+                        c_id = ct.get("id") or ct_name
+                        cached_c = _custom_trackers_cache.get(c_id)
+                        c_interval = float(ct.get("interval_minutes", 5)) * 60
+                        if not cached_c or (now - cached_c.get("last_checked", 0)) > c_interval:
+                            try:
+                                c_resp = requests.get(check_url, timeout=3.0)
+                                _custom_trackers_cache[c_id] = {
+                                    "online": c_resp.status_code < 400,
+                                    "status_code": c_resp.status_code,
+                                    "last_checked": now
+                                }
+                            except Exception:
+                                _custom_trackers_cache[c_id] = {
+                                    "online": False,
+                                    "status_code": 0,
+                                    "last_checked": now
+                                }
+                        c_info = _custom_trackers_cache.get(c_id, {})
+                        c_stat = "● Online" if c_info.get("online") else "○ Offline"
+                        if "{status}" in ct_details:
+                            ct_details = ct_details.replace("{status}", c_stat)
+                        elif not ct_details:
+                            ct_details = f"{ct_name}: {c_stat}"
+
+                    screens.append({
+                        "name": ct_name,
+                        "screen_type": "custom",
+                        "custom_id": ct.get("id") or ct_name,
+                        "details": ct_details,
+                        "state": ct_state,
+                        "large_image": ct_icon,
+                        "custom_data": ct
+                    })
+
+            if not screens:
+                screens.append({
+                    "name": "Protutech Cloud",
+                    "screen_type": "system",
+                    "details": "Protutech Cloud Services",
+                    "state": "All trackers standby",
+                    "large_image": default_large
+                })
+
             # Screen Selection: Manual lock or timed rotation
             active_mode = str(cfg.get("active_screen", "rotate")).strip().lower()
             selected_screen = None
@@ -2251,6 +2437,8 @@ def main():
                                 s_icon = BUILTIN_GAME_ICONS.get("minecraft", DEFAULT_PROXMOX_ICON)
                             elif s_type == "game":
                                 s_icon = resolve_game_image(s.get("game_info"), cfg) or default_large
+                            elif s_type == "custom":
+                                s_icon = s.get("large_image") or DEFAULT_DVD_ICON
                             else:
                                 s_icon = default_large
                         except Exception:
@@ -2262,6 +2450,9 @@ def main():
                             "details": s.get("details", ""),
                             "state": s.get("state", ""),
                             "large_image": s_icon or default_large,
+                            "hidden": s.get("name") in cfg.get("hidden_screens", []),
+                            "custom_id": s.get("custom_id"),
+                            "custom_data": s.get("custom_data"),
                             "stats": stats if s.get("name") == "Proxmox Overview" else None,
                             "k_stats": k_stats if s.get("name") == "Crypto Miner" else None,
                             "net_stats": _net_stats if s.get("name") == "Network Speed" else None,
@@ -2448,6 +2639,12 @@ def main():
                 else:
                     large_txt = "Free Games Tracker | GamerPower"
 
+                small_img = default_large
+                small_txt = "Protutech Cloud"
+
+            elif current_screen.get("screen_type") == "custom":
+                large_img = current_screen.get("large_image") or default_large
+                large_txt = f"{current_screen['name']} | Protutech Cloud"
                 small_img = default_large
                 small_txt = "Protutech Cloud"
 
