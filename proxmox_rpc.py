@@ -1910,7 +1910,7 @@ module.exports = native;
     except Exception:
         pass
 
-    # 1. Maintain Discord app.asar native hook to permanently suppress CurseForge from game scanner
+    # 1. Maintain Discord app.asar native hook & localStorage sanitizer
     try:
         local_app = os.environ.get("LOCALAPPDATA", "")
         if local_app:
@@ -1922,38 +1922,103 @@ module.exports = native;
                         try:
                             with open(asar_idx, "r", encoding="utf-8", errors="ignore") as f:
                                 idx_content = f.read()
-                            if "originalDlopen" not in idx_content:
+                            if "AntiCurse" not in idx_content:
+                                # Strip any previous partial hook
+                                if "originalDlopen" in idx_content and "require(" in idx_content:
+                                    tail_idx = idx_content.rfind("require(")
+                                    if tail_idx != -1:
+                                        idx_content = idx_content[tail_idx:]
+
                                 hook_code = (
-                                    "// Suppress CurseForge and Overwolf from Discord's native game identification\n"
+                                    "// Suppress CurseForge and Overwolf from Discord native game identification & local storage\n"
                                     "try {\n"
                                     "  const originalDlopen = process.dlopen;\n"
+                                    "  const BLOCKED = ['curseforge', 'curse.agent.host', 'overwolf'];\n"
+                                    "  const isBlocked = (s) => s && BLOCKED.some(b => String(s).toLowerCase().includes(b));\n"
                                     "  process.dlopen = function(mod, filename, flags) {\n"
                                     "    const res = originalDlopen.apply(this, arguments);\n"
                                     "    try {\n"
-                                    "      if (filename && filename.includes('discord_game_utils')) {\n"
-                                    "        const origIdentify = mod.exports.identifyGame;\n"
-                                    "        if (typeof origIdentify === 'function') {\n"
-                                    "          const BLOCKED = ['curseforge', 'curse.agent.host', 'overwolf'];\n"
-                                    "          mod.exports.identifyGame = function(pid, callback) {\n"
-                                    "            return origIdentify.call(mod.exports, pid, (err, data) => {\n"
-                                    "              try {\n"
-                                    "                if (!err && data) {\n"
-                                    "                  const name = (data.name || '').toLowerCase();\n"
-                                    "                  const exe = (data.executableName || '').toLowerCase();\n"
-                                    "                  const pub = (data.publisher || '').toLowerCase();\n"
-                                    "                  if (BLOCKED.some(b => name.includes(b) || exe.includes(b) || pub.includes(b))) {\n"
-                                    "                    return callback(3, { name: '', executableName: data.executableName || '' });\n"
+                                    "      if (filename) {\n"
+                                    "        if (filename.includes('discord_game_utils')) {\n"
+                                    "          const origIdentify = mod.exports.identifyGame;\n"
+                                    "          if (typeof origIdentify === 'function') {\n"
+                                    "            mod.exports.identifyGame = function(pid, callback) {\n"
+                                    "              return origIdentify.call(mod.exports, pid, (err, data) => {\n"
+                                    "                try {\n"
+                                    "                  if (!err && data) {\n"
+                                    "                    if (isBlocked(data.name) || isBlocked(data.executableName) || isBlocked(data.publisher)) {\n"
+                                    "                      return callback(3, { name: '', executableName: data.executableName || '' });\n"
+                                    "                    }\n"
                                     "                  }\n"
-                                    "                }\n"
-                                    "              } catch(e) {}\n"
-                                    "              return callback(err, data);\n"
-                                    "            });\n"
-                                    "          };\n"
+                                    "                } catch(e) {}\n"
+                                    "                return callback(err, data);\n"
+                                    "              });\n"
+                                    "            };\n"
+                                    "          }\n"
+                                    "        }\n"
+                                    "        if (filename.includes('discord_utils')) {\n"
+                                    "          for (const fn of ['setCandidateGamesCallback', 'setGameDetectionCallback']) {\n"
+                                    "            const origFn = mod.exports[fn];\n"
+                                    "            if (typeof origFn === 'function') {\n"
+                                    "              mod.exports[fn] = function(cb) {\n"
+                                    "                if (typeof cb !== 'function') return origFn.apply(mod.exports, arguments);\n"
+                                    "                const wrappedCb = function(games) {\n"
+                                    "                  try {\n"
+                                    "                    if (Array.isArray(games)) {\n"
+                                    "                      games = games.filter(g => !isBlocked(g && (g.name || g.exePath || g.processName || g.executableName)));\n"
+                                    "                    }\n"
+                                    "                  } catch(e) {}\n"
+                                    "                  return cb(games);\n"
+                                    "                };\n"
+                                    "                return origFn.call(mod.exports, wrappedCb);\n"
+                                    "              };\n"
+                                    "            }\n"
+                                    "          }\n"
                                     "        }\n"
                                     "      }\n"
                                     "    } catch(e) {}\n"
                                     "    return res;\n"
                                     "  };\n"
+                                    "  // AntiCurse: Renderer-level localStorage cleanup of CurseForge overrides\n"
+                                    "  const electron = require('electron');\n"
+                                    "  const app = electron && electron.app;\n"
+                                    "  if (app) {\n"
+                                    "    const cleanScript = `\n"
+                                    "      try {\n"
+                                    "        const raw = localStorage.getItem('RunningGameStore');\n"
+                                    "        if (raw) {\n"
+                                    "          const s = JSON.parse(raw);\n"
+                                    "          let chg = false;\n"
+                                    "          const isB = (x) => x && (String(x).toLowerCase().includes('curse') || String(x).toLowerCase().includes('overwolf'));\n"
+                                    "          for (const target of [s, s._state]) {\n"
+                                    "            if (!target) continue;\n"
+                                    "            for (const mapName of ['gameOverrides', 'enableDetection', 'enableOverlay', 'enableOverlayV3']) {\n"
+                                    "              if (target[mapName]) {\n"
+                                    "                for (const k of Object.keys(target[mapName])) {\n"
+                                    "                  if (isB(k)) { delete target[mapName][k]; chg = true; }\n"
+                                    "                }\n"
+                                    "              }\n"
+                                    "            }\n"
+                                    "            if (Array.isArray(target.gamesSeen)) {\n"
+                                    "              const origLen = target.gamesSeen.length;\n"
+                                    "              target.gamesSeen = target.gamesSeen.filter(g => !isB(g && (g.name || g.exePath)));\n"
+                                    "              if (target.gamesSeen.length !== origLen) chg = true;\n"
+                                    "            }\n"
+                                    "          }\n"
+                                    "          if (chg) { localStorage.setItem('RunningGameStore', JSON.stringify(s)); }\n"
+                                    "        }\n"
+                                    "      } catch(e) {}\n"
+                                    "    `;\n"
+                                    "    app.on('browser-window-created', (evt, win) => {\n"
+                                    "      try {\n"
+                                    "        if (win && win.webContents) {\n"
+                                    "          win.webContents.on('dom-ready', () => {\n"
+                                    "            try { win.webContents.executeJavaScript(cleanScript).catch(() => {}); } catch(e) {}\n"
+                                    "          });\n"
+                                    "        }\n"
+                                    "      } catch(e) {}\n"
+                                    "    });\n"
+                                    "  }\n"
                                     "} catch(e) {}\n\n"
                                 )
                                 with open(asar_idx, "w", encoding="utf-8") as f:
@@ -1964,7 +2029,7 @@ module.exports = native;
     except Exception:
         pass
 
-    # 2. Ensure Equicord IgnoreActivities plugin has CurseForge blocked
+    # 2. Ensure Equicord IgnoreActivities plugin has CurseForge blocked in Blacklist mode
     try:
         appdata = os.environ.get("APPDATA", "")
         if appdata:
@@ -1996,11 +2061,9 @@ module.exports = native;
                 needs_update = False
                 if not ia.get("enabled"):
                     ia["enabled"] = True
-                    ia["ignorePlaying"] = False
-                    ia["ignoreStreaming"] = False
-                    ia["ignoreListening"] = False
-                    ia["ignoreWatching"] = False
-                    ia["ignoreCompeting"] = False
+                    needs_update = True
+                if ia.get("listMode") != 1:
+                    ia["listMode"] = 1  # Blacklist filter mode
                     needs_update = True
                 
                 existing_ids = {e.get("id") for e in ia.get("ignoredActivities", [])}
@@ -2016,7 +2079,7 @@ module.exports = native;
                     eq_data["plugins"]["IgnoreActivities"] = ia
                     with open(equi_settings, "w", encoding="utf-8") as f:
                         json.dump(eq_data, f, indent=2)
-                    print("[INFO] Configured Equicord IgnoreActivities for CurseForge suppression", flush=True)
+                    print("[INFO] Configured Equicord IgnoreActivities in Blacklist mode for CurseForge suppression", flush=True)
     except Exception:
         pass
 
@@ -2504,16 +2567,19 @@ def main():
         # 1. Ensure Discord RPC connection
         if rpc is None:
             try:
-                rpc = Presence(client_id)
-                rpc.connect()
+                _new_rpc = Presence(client_id)
+                _new_rpc.connect()
+                rpc = _new_rpc
                 print("[INFO] Connected to Discord RPC successfully!", flush=True)
                 next_tick = time.time()
             except DiscordNotFound:
+                rpc = None
                 print("[WAIT] Discord client is not running. Retrying in 10s...", flush=True)
                 time.sleep(10)
                 next_tick = time.time()
                 continue
             except Exception as e:
+                rpc = None
                 print(f"[WAIT] Could not connect to Discord ({e}). Retrying in 10s...", flush=True)
                 time.sleep(10)
                 next_tick = time.time()
