@@ -1435,7 +1435,7 @@
       card.className = `card ${isCurrent ? 'active-screen' : ''}`;
 
       let iconUrl = s.large_image || "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png";
-      if (!iconUrl.startsWith("http://") && !iconUrl.startsWith("https://")) {
+      if (!iconUrl.startsWith("http://") && !iconUrl.startsWith("https://") && !iconUrl.startsWith("/")) {
         iconUrl = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png";
       }
 

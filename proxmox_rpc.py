@@ -429,6 +429,8 @@ def detect_minecraft_instance(cfg=None):
             "name": "Minecraft",
             "modpack_name": None,
             "is_modpack": False,
+            "icon_url": None,
+            "local_icon_path": None,
             "mods_count": 0,
             "mc_version": "",
             "modloader": "",
@@ -480,6 +482,8 @@ def detect_minecraft_instance(cfg=None):
                     "name": "Minecraft (Bedrock)",
                     "modpack_name": "Minecraft Bedrock Edition",
                     "is_modpack": False,
+                    "icon_url": BUILTIN_GAME_ICONS.get("minecraft"),
+                    "local_icon_path": None,
                     "mods_count": 0,
                     "mc_version": "Bedrock",
                     "modloader": "Bedrock",
@@ -519,6 +523,8 @@ def detect_minecraft_instance(cfg=None):
                 loader_name = None
                 mods_count = 0
                 is_modpack = False
+                icon_url = None
+                local_icon_path = None
                 instance_name = os.path.basename(os.path.normpath(game_dir)) if game_dir else ""
 
                 if game_dir and os.path.isdir(game_dir):
@@ -532,52 +538,88 @@ def detect_minecraft_instance(cfg=None):
                                 if not mc_ver:
                                     mc_ver = d.get('gameVersion')
                                 loader_name = d.get('baseModLoader', {}).get('name')
+
+                                # CurseForge icon extraction (CDN avatar/thumbnail)
+                                imp = d.get('installedModpack') or {}
+                                if isinstance(imp, dict):
+                                    icon_url = imp.get('thumbnailUrl') or imp.get('avatarUrl') or imp.get('logoUrl')
+                                if not icon_url:
+                                    man_sub = d.get('manifest') or {}
+                                    if isinstance(man_sub, dict):
+                                        icon_url = man_sub.get('image') or man_sub.get('thumbnailUrl') or man_sub.get('avatarUrl')
+                                if not icon_url:
+                                    icon_url = d.get('thumbnailUrl') or d.get('avatarUrl')
+                                if not icon_url:
+                                    p_img = d.get('profileImagePath')
+                                    if p_img and isinstance(p_img, str):
+                                        if p_img.startswith('http://') or p_img.startswith('https://'):
+                                            icon_url = p_img
+                                        elif os.path.isfile(p_img):
+                                            local_icon_path = p_img
                         except Exception:
                             pass
 
                     # 2. Modpack manifest.json
-                    if not modpack_name:
-                        man = os.path.join(game_dir, 'manifest.json')
-                        if os.path.exists(man):
-                            try:
-                                with open(man, 'r', encoding='utf-8', errors='ignore') as f:
-                                    d = json.load(f)
+                    man = os.path.join(game_dir, 'manifest.json')
+                    if os.path.exists(man):
+                        try:
+                            with open(man, 'r', encoding='utf-8', errors='ignore') as f:
+                                d = json.load(f)
+                                if not modpack_name:
                                     modpack_name = d.get('name')
-                                    if not mc_ver:
-                                        mc_ver = d.get('minecraft', {}).get('version')
-                                    if not loader_name:
-                                        lds = d.get('minecraft', {}).get('modLoaders', [])
-                                        if lds:
-                                            loader_name = lds[0].get('id')
-                            except Exception:
-                                pass
+                                if not mc_ver:
+                                    mc_ver = d.get('minecraft', {}).get('version')
+                                if not loader_name:
+                                    lds = d.get('minecraft', {}).get('modLoaders', [])
+                                    if lds:
+                                        loader_name = lds[0].get('id')
+                                if not icon_url:
+                                    icon_url = d.get('image') or d.get('thumbnailUrl')
+                        except Exception:
+                            pass
 
                     # 3. Prism Launcher / MultiMC instance.cfg
                     prism_cfg = os.path.join(game_dir, 'instance.cfg')
-                    if not modpack_name and os.path.exists(prism_cfg):
+                    if os.path.exists(prism_cfg):
                         try:
                             with open(prism_cfg, 'r', encoding='utf-8', errors='ignore') as f:
                                 for line in f:
-                                    if line.startswith('name='):
+                                    if line.startswith('name=') and not modpack_name:
                                         modpack_name = line.strip().split('=', 1)[1]
                                     elif line.startswith('IntendedVersion=') and not mc_ver:
                                         mc_ver = line.strip().split('=', 1)[1]
+                                    elif line.startswith('iconKey=') and not local_icon_path:
+                                        icon_k = line.strip().split('=', 1)[1]
+                                        c_loc = os.path.join(game_dir, f"{icon_k}.png")
+                                        if os.path.isfile(c_loc):
+                                            local_icon_path = c_loc
                         except Exception:
                             pass
 
                     # 4. Modrinth modrinth.index.json
                     mr_file = os.path.join(game_dir, 'modrinth.index.json')
-                    if not modpack_name and os.path.exists(mr_file):
+                    if os.path.exists(mr_file):
                         try:
                             with open(mr_file, 'r', encoding='utf-8', errors='ignore') as f:
                                 mr_data = json.load(f)
-                                modpack_name = mr_data.get('name')
+                                if not modpack_name:
+                                    modpack_name = mr_data.get('name')
                                 if not mc_ver:
                                     mc_ver = mr_data.get('gameVersion')
+                                if not icon_url:
+                                    icon_url = mr_data.get('icon_url') or mr_data.get('imageUrl')
                         except Exception:
                             pass
 
-                    # 5. Count installed mod JARs
+                    # 5. Local modpack image files in instance folder
+                    if not icon_url and not local_icon_path:
+                        for fname in ('icon.png', 'icon.webp', 'icon.jpg', 'instance.png', 'cover.png'):
+                            ip = os.path.join(game_dir, fname)
+                            if os.path.isfile(ip):
+                                local_icon_path = ip
+                                break
+
+                    # 6. Count installed mod JARs
                     mods_dir = os.path.join(game_dir, 'mods')
                     if os.path.isdir(mods_dir):
                         mods_count = len(glob.glob(os.path.join(mods_dir, '*.jar')))
@@ -666,6 +708,8 @@ def detect_minecraft_instance(cfg=None):
                     "name": modpack_name or "Minecraft",
                     "modpack_name": modpack_name or "Minecraft",
                     "is_modpack": is_modpack,
+                    "icon_url": icon_url,
+                    "local_icon_path": local_icon_path,
                     "mods_count": mods_count,
                     "mc_version": mc_ver or "",
                     "modloader": loader_name or "",
@@ -686,6 +730,8 @@ def detect_minecraft_instance(cfg=None):
         "name": "Minecraft",
         "modpack_name": None,
         "is_modpack": False,
+        "icon_url": None,
+        "local_icon_path": None,
         "mods_count": 0,
         "mc_version": "",
         "modloader": "",
@@ -1586,6 +1632,33 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
+
+        elif parsed_path == "/api/minecraft/icon":
+            mc_status = fetch_minecraft_status()
+            loc_path = mc_status.get("local_icon_path") if mc_status else None
+            if loc_path and os.path.isfile(loc_path):
+                try:
+                    ctype = "image/png"
+                    if loc_path.lower().endswith(".webp"):
+                        ctype = "image/webp"
+                    elif loc_path.lower().endswith((".jpg", ".jpeg")):
+                        ctype = "image/jpeg"
+                    elif loc_path.lower().endswith(".gif"):
+                        ctype = "image/gif"
+                    with open(loc_path, "rb") as f:
+                        img_data = f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Content-Length", str(len(img_data)))
+                    self.send_header("Cache-Control", "public, max-age=300")
+                    self.end_headers()
+                    self.wfile.write(img_data)
+                    return
+                except Exception:
+                    pass
+            self.send_response(404)
+            self.end_headers()
 
         else:
             self.send_response(404)
@@ -2709,7 +2782,10 @@ def main():
                             elif s_name == "Steam Profile":
                                 s_icon = s.get("steam_data", {}).get("avatar_url") if s.get("steam_data") else default_large
                             elif s_name == "Minecraft":
-                                s_icon = BUILTIN_GAME_ICONS.get("minecraft", DEFAULT_PROXMOX_ICON)
+                                mc_icon = s.get("mc_status", {}).get("icon_url")
+                                if not mc_icon and s.get("mc_status", {}).get("local_icon_path"):
+                                    mc_icon = "/api/minecraft/icon"
+                                s_icon = mc_icon or BUILTIN_GAME_ICONS.get("minecraft", DEFAULT_PROXMOX_ICON)
                             elif s_type == "game":
                                 s_icon = resolve_game_image(s.get("game_info"), cfg) or default_large
                             elif s_type == "custom":
@@ -2848,6 +2924,11 @@ def main():
                     m_act = mc_info.get("activity") or "In-Game"
                     m_launcher = mc_info.get("launcher") or "Minecraft"
 
+                    # If modpack has an official icon/image URL, use it as the main large image!
+                    pack_icon = mc_info.get("icon_url")
+                    if pack_icon and (pack_icon.startswith("http://") or pack_icon.startswith("https://")):
+                        large_img = pack_icon
+
                     if mc_info.get("is_modpack"):
                         parts = [mp_name]
                         if m_loader:
@@ -2863,7 +2944,11 @@ def main():
                     if len(large_txt) > 120:
                         large_txt = large_txt[:117] + "..."
 
-                    small_img = default_large
+                    # When using modpack icon as large image, badge with Minecraft grass block icon!
+                    if pack_icon and (pack_icon.startswith("http://") or pack_icon.startswith("https://")):
+                        small_img = BUILTIN_GAME_ICONS.get("minecraft", default_large)
+                    else:
+                        small_img = default_large
                     small_txt = f"{m_launcher} • {m_act}"[:120]
                 else:
                     large_txt = "Minecraft: Standby | Protutech Cloud"
