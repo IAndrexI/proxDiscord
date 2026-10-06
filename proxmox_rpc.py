@@ -2546,6 +2546,46 @@ module.exports = native;
                         pass
             except Exception:
                 pass
+
+        # Also patch discord_utils index.js candidate games & game detection callbacks
+        pattern_du = os.path.join(discord_dir, "app-*", "modules", "discord_utils-*", "discord_utils", "index.js")
+        patch_du_code = (
+            "\nconst BLOCKED_GAME_NAMES = ['curseforge', 'curse.agent.host', 'overwolf', 'curse'];\n"
+            "const isBlockedGame = (g) => {\n"
+            "    if (!g) return false;\n"
+            "    const s = `${g.name || ''} ${g.exePath || ''} ${g.processName || ''} ${g.executableName || ''} ${g.cmdLine || ''}`.toLowerCase();\n"
+            "    return BLOCKED_GAME_NAMES.some(b => s.includes(b));\n"
+            "};\n"
+            "for (const fn of ['setCandidateGamesCallback', 'setGameDetectionCallback']) {\n"
+            "    const orig = nativeUtils[fn];\n"
+            "    if (typeof orig === 'function') {\n"
+            "        nativeUtils[fn] = function(cb) {\n"
+            "            if (typeof cb !== 'function') return orig.apply(nativeUtils, arguments);\n"
+            "            return orig.call(nativeUtils, function(games) {\n"
+            "                try {\n"
+            "                    if (Array.isArray(games)) {\n"
+            "                        games = games.filter(g => !isBlockedGame(g));\n"
+            "                    }\n"
+            "                } catch(e) {}\n"
+            "                return cb(games);\n"
+            "            });\n"
+            "        };\n"
+            "    }\n"
+            "}\n"
+        )
+        for du_file in glob.glob(pattern_du):
+            try:
+                with open(du_file, "r", encoding="utf-8", errors="ignore") as f:
+                    du_content = f.read()
+                if "BLOCKED_GAME_NAMES" not in du_content:
+                    needle = "nativeUtils.clearCandidateGamesCallback = nativeUtils.setCandidateGamesCallback;"
+                    if needle in du_content:
+                        du_content = du_content.replace(needle, needle + patch_du_code, 1)
+                        with open(du_file, "w", encoding="utf-8") as f:
+                            f.write(du_content)
+                        print(f"[INFO] Auto-patched discord_utils detector: {du_file}", flush=True)
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -2719,6 +2759,41 @@ module.exports = native;
                     with open(equi_settings, "w", encoding="utf-8") as f:
                         json.dump(eq_data, f, indent=2)
                     print("[INFO] Configured Equicord IgnoreActivities in Blacklist mode for CurseForge suppression", flush=True)
+    except Exception:
+        pass
+
+    # 3. Permanently enforce disabled Discord Rich Presence in CurseForge configuration
+    try:
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            cf_storage = os.path.join(appdata, "CurseForge", "storage.json")
+            if os.path.exists(cf_storage):
+                with open(cf_storage, "r", encoding="utf-8") as f:
+                    cf_data = json.load(f)
+                priv_str = cf_data.get("privacy-settings")
+                needs_cf_update = False
+                if not priv_str:
+                    needs_cf_update = True
+                else:
+                    try:
+                        p_obj = json.loads(priv_str)
+                        if p_obj.get("enableDiscordRichPresence") is not False:
+                            needs_cf_update = True
+                    except Exception:
+                        needs_cf_update = True
+                if needs_cf_update:
+                    cf_data["privacy-settings"] = json.dumps({
+                        "isPrivacyOptimizePerformance": True,
+                        "isPrivacyCustomize": False,
+                        "enableDiscordRichPresence": False,
+                        "enableCRN": False
+                    })
+                    with open(cf_storage, "w", encoding="utf-8") as f:
+                        json.dump(cf_data, f, indent=4)
+                    print("[INFO] Enforced enableDiscordRichPresence=False in CurseForge storage.json", flush=True)
+
+        # Terminate any lingering Curse.Agent.Host.exe process that may hold a stale Discord RPC pipe
+        subprocess.run(["taskkill", "/F", "/IM", "Curse.Agent.Host.exe"], capture_output=True, creationflags=0x08000000)
     except Exception:
         pass
 
