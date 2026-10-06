@@ -101,12 +101,35 @@ def _pve_stats_worker():
         time.sleep(10)
 
 
+def make_default_proxmox_stats(cfg):
+    return {
+        "node": cfg.get("proxmox_node", "Protutech"),
+        "cpu_pct": 0.0,
+        "mem_used": 0.0,
+        "mem_total": 1.0,
+        "mem_pct": 0.0,
+        "storage_pool": "local",
+        "storage_used_gb": 0.0,
+        "storage_total_tb": 1.0,
+        "storage_pct": 0.0,
+        "running_vms": 0,
+        "total_vms": 0,
+        "running_lxcs": 0,
+        "total_lxcs": 0,
+        "total_guests": 0,
+        "running_guests": 0,
+        "uptime": "Standby",
+        "mc_status": "Offline",
+        "offline": True
+    }
+
+
 def get_cached_proxmox_stats(cfg, force=False):
     """
     Returns cached Proxmox stats instantly from memory without blocking the rotation loop.
     A dedicated background daemon thread keeps the metrics fresh every 10 seconds.
     """
-    global _pve_worker_started
+    global _pve_worker_started, _cached_proxmox_stats
     if not _pve_worker_started:
         _pve_worker_started = True
         t = threading.Thread(target=_pve_stats_worker, daemon=True)
@@ -114,7 +137,13 @@ def get_cached_proxmox_stats(cfg, force=False):
     with _pve_lock:
         if _cached_proxmox_stats is not None:
             return _cached_proxmox_stats
-    return fetch_proxmox_stats(cfg)
+    try:
+        s = fetch_proxmox_stats(cfg)
+        with _pve_lock:
+            _cached_proxmox_stats = s
+        return s
+    except Exception:
+        return make_default_proxmox_stats(cfg)
 
 
 def fetch_proxmox_stats(cfg):
@@ -126,7 +155,7 @@ def fetch_proxmox_stats(cfg):
 
     # 1. Fetch Cluster Node Overview (for smoothed cluster CPU & memory)
     nodes_url = f"{host}/api2/json/nodes"
-    nodes_res = requests.get(nodes_url, headers=headers, verify=False, timeout=8)
+    nodes_res = requests.get(nodes_url, headers=headers, verify=False, timeout=3.0)
     nodes_res.raise_for_status()
     cluster_nodes = nodes_res.json().get("data", [])
     current_node_summary = next((n for n in cluster_nodes if n.get("node") == node), {})
@@ -1003,7 +1032,7 @@ def get_local_steam_id64():
 def fetch_steam_profile(steam_id=None):
     """
     Fetch public Steam profile details: avatar, persona name, level, games count, items count,
-    badges count, achievements count, and perfect games count.
+    badges count, achievements count, perfect games count, hours played, and online status.
     """
     sid = str(steam_id).strip() if steam_id else get_local_steam_id64()
     if not sid:
@@ -1017,6 +1046,8 @@ def fetch_steam_profile(steam_id=None):
     badges_count = "0"
     achievements_count = "0"
     perfect_games_count = "0"
+    hours_count = "0"
+    online_status = "Online"
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -1034,13 +1065,19 @@ def fetch_steam_profile(steam_id=None):
             if p_elem is not None and p_elem.text:
                 persona = p_elem.text
 
-            a_elem = root.find("avatarFull")
-            if a_elem is None:
-                a_elem = root.find("avatarMedium")
-            if a_elem is None:
-                a_elem = root.find("avatarIcon")
+            a_elem = root.find("avatarFull") or root.find("avatarMedium") or root.find("avatarIcon")
             if a_elem is not None and a_elem.text:
                 avatar_url = a_elem.text.replace("avatars.fastly.steamstatic.com", "avatars.steamstatic.com")
+
+            state_elem = root.find("onlineState")
+            if state_elem is not None and state_elem.text:
+                st_val = state_elem.text.strip().lower()
+                if st_val == "in-game":
+                    online_status = "In-Game"
+                elif st_val == "online":
+                    online_status = "Online"
+                elif st_val == "offline":
+                    online_status = "Offline"
     except Exception:
         pass
 
@@ -1050,44 +1087,58 @@ def fetch_steam_profile(steam_id=None):
         resp = requests.get(profile_url, headers=headers, timeout=5.0)
         if resp.status_code == 200:
             html = resp.text
+
+            def parse_max_numeric(matches, fallback="0"):
+                if not matches: return fallback
+                cleaned = [m.replace(',', '').strip() for m in matches if m.replace(',', '').strip().isdigit()]
+                if not cleaned: return matches[0].strip()
+                return f"{max([int(x) for x in cleaned]):,}"
+
+            if persona == "Steam User":
+                p_m = re.search(r'<span class="actual_persona_name">([^<]+)</span>', html)
+                if p_m:
+                    persona = p_m.group(1).strip()
+
             lvl_m = re.search(r'friendPlayerLevelNum">(\d+)</span>', html)
             if lvl_m:
-                level = lvl_m.group(1)
+                level = lvl_m.group(1).strip()
 
-            gm = re.search(r'href="[^"]*/games[/?][^"]*".*?<span class="profile_count_link_total">\s*([\d,]+)\s*</span>', html, re.DOTALL | re.IGNORECASE)
+            gm = re.findall(r'count_link_label">Games</span>(?:\s*&nbsp;)?\s*<span class="profile_count_link_total">\s*([\d,]+)\s*</span>', html, re.IGNORECASE)
             if not gm:
-                gm = re.search(r'<div class="value">\s*([\d,]+)\s*</div>\s*<div class="label">\s*Games\s*</div>', html, re.DOTALL | re.IGNORECASE)
-            if not gm:
-                gm = re.search(r'Games.*?<span class="profile_count_link_total">\s*([\d,]+)\s*</span>', html, re.DOTALL | re.IGNORECASE)
-            if gm:
-                games_count = gm.group(1).strip()
+                gm = re.findall(r'href="[^"]*/games[/?][^"]*".*?<span class="profile_count_link_total">\s*([\d,]+)\s*</span>', html, re.DOTALL | re.IGNORECASE)
+            games_count = parse_max_numeric(gm, games_count)
 
-            itm = re.search(r'<div class="value">\s*([\d,]+)\s*</div>\s*<div class="label">\s*Items Owned\s*</div>', html, re.DOTALL | re.IGNORECASE)
+            bdg = re.findall(r'<div class="value">\s*([\d,]+)\s*</div>\s*<div class="label">\s*Total Badges Earned\s*</div>', html, re.IGNORECASE)
+            if not bdg:
+                bdg = re.findall(r'count_link_label">Badges</span>(?:\s*&nbsp;)?\s*<span class="profile_count_link_total">\s*([\d,]+)\s*</span>', html, re.IGNORECASE)
+            badges_count = parse_max_numeric(bdg, badges_count)
+
+            itm = re.findall(r'<div class="value">\s*([\d,]+)\s*</div>\s*<div class="label">\s*Items Owned\s*</div>', html, re.IGNORECASE)
             if not itm:
-                itm = re.search(r'href="[^"]*/inventory[/?][^"]*".*?<span class="profile_count_link_total">\s*([\d,]+)\s*</span>', html, re.DOTALL | re.IGNORECASE)
-            if itm:
-                items_count = itm.group(1).strip()
+                itm = re.findall(r'href="[^"]*/inventory[/?][^"]*".*?<span class="profile_count_link_total">\s*([\d,]+)\s*</span>', html, re.DOTALL | re.IGNORECASE)
+            items_count = parse_max_numeric(itm, items_count)
 
-            # Badges
-            bdg = re.search(r'Total Badges Earned\s*</div>\s*<div class="value">\s*([\d,]+)\s*</div>', html, re.IGNORECASE)
-            if not bdg:
-                bdg = re.search(r'<div class="value">\s*([\d,]+)\s*</div>\s*<div class="label">\s*Total Badges Earned\s*</div>', html, re.IGNORECASE)
-            if not bdg:
-                bdg = re.search(r'href="[^"]*/badges[/?][^"]*".*?<span class="profile_count_link_total">\s*([\d,]+)\s*</span>', html, re.DOTALL | re.IGNORECASE)
-            if bdg:
-                badges_count = bdg.group(1).strip()
-
-            # Achievements
-            ach = re.search(r'<div class="value">\s*([\d,]+)\s*</div>\s*<div class="label">\s*Achievements\s*</div>', html, re.IGNORECASE)
+            ach = re.findall(r'<div class="value">\s*([\d,]+)\s*</div>\s*<div class="label">\s*Achievements\s*</div>', html, re.IGNORECASE)
             if not ach:
-                ach = re.search(r'Achievements.*?<span class="profile_count_link_total">\s*([\d,]+)\s*</span>', html, re.DOTALL | re.IGNORECASE)
-            if ach:
-                achievements_count = ach.group(1).strip()
+                ach = re.findall(r'([\d,]+)\s*</div>\s*<div class="label">\s*Achievements', html, re.IGNORECASE)
+            achievements_count = parse_max_numeric(ach, achievements_count)
 
-            # Perfect Games
-            pfg = re.search(r'<div class="value">\s*([\d,]+)\s*</div>\s*<div class="label">\s*Perfect Games\s*</div>', html, re.IGNORECASE)
-            if pfg:
-                perfect_games_count = pfg.group(1).strip()
+            pfg = re.findall(r'<div class="value">\s*([\d,]+)\s*</div>\s*<div class="label">\s*Perfect Games\s*</div>', html, re.IGNORECASE)
+            perfect_games_count = parse_max_numeric(pfg, perfect_games_count)
+
+            hrs = re.findall(r'([\d,]+(?:\.\d+)?)\s*hrs?\s*on\s*record', html, re.IGNORECASE)
+            hours_count = parse_max_numeric(hrs, hours_count)
+
+            hdr_m = re.search(r'<div class="profile_in_game_header">([^<]+)</div>', html)
+            if hdr_m:
+                h_txt = hdr_m.group(1).strip()
+                if "In-Game" in h_txt:
+                    game_m = re.search(r'<div class="profile_in_game_name">([^<]+)</div>', html)
+                    online_status = f"Playing {game_m.group(1).strip()}" if game_m else "In-Game"
+                elif "Online" in h_txt:
+                    online_status = "Online"
+                elif "Offline" in h_txt:
+                    online_status = "Offline"
     except Exception:
         pass
 
@@ -1101,6 +1152,8 @@ def fetch_steam_profile(steam_id=None):
         "badges": badges_count,
         "achievements": achievements_count,
         "perfect_games": perfect_games_count,
+        "hours": hours_count,
+        "status": online_status,
         "last_updated": time.time()
     }
 
@@ -1135,24 +1188,26 @@ def start_steam_worker_if_needed(cfg):
 
 def get_cached_steam_stats(cfg):
     global _cached_steam_stats
+    interval_min = float(cfg.get("steam_cache_minutes", 15))
+
     with _steam_lock:
-        if _cached_steam_stats is not None:
+        if _cached_steam_stats is not None and str(_cached_steam_stats.get("level", "0")) not in ("0", "") and (time.time() - _cached_steam_stats.get("last_updated", 0)) < (interval_min * 60):
             return _cached_steam_stats
 
     cached = load_steam_cache()
-    if cached:
+    if cached and str(cached.get("level", "0")) not in ("0", "") and (time.time() - cached.get("last_updated", 0)) < (interval_min * 60):
         with _steam_lock:
             _cached_steam_stats = cached
         return cached
 
     sid = cfg.get("steam_id") or None
     fresh = fetch_steam_profile(sid)
-    if fresh:
+    if fresh and str(fresh.get("level", "0")) not in ("0", ""):
         with _steam_lock:
             _cached_steam_stats = fresh
         save_steam_cache(fresh)
         return fresh
-    return None
+    return cached or fresh or None
 
 
 # GitHub Stats Integration & Caching
@@ -1434,6 +1489,317 @@ def get_cached_free_games(cfg):
     return {"games": [], "count": 0, "last_updated": time.time()}
 
 
+# Market Watch Integration (Recommended Crypto & Stocks)
+_market_worker_started = False
+_market_lock = threading.Lock()
+_cached_market_stats = None
+MARKET_CACHE_FILE = os.path.join(LOG_DIR, "market_cache.json")
+
+
+def load_market_cache():
+    if os.path.exists(MARKET_CACHE_FILE):
+        try:
+            with open(MARKET_CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+
+def save_market_cache(data):
+    try:
+        with open(MARKET_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+
+def fetch_market_data(cfg=None):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    crypto_symbols = (cfg.get("market_crypto_list") if cfg else None) or ["BTC", "ETH", "SOL"]
+    stocks_symbols = (cfg.get("market_stocks_list") if cfg else None) or ["NVDA", "AAPL", "MSFT", "SPY"]
+
+    tickers = []
+    for c in crypto_symbols:
+        c_clean = str(c).strip().upper()
+        if not c_clean.endswith("-USD"):
+            tickers.append((c_clean, f"{c_clean}-USD", "crypto"))
+        else:
+            tickers.append((c_clean.replace("-USD", ""), c_clean, "crypto"))
+    for s in stocks_symbols:
+        s_clean = str(s).strip().upper()
+        tickers.append((s_clean, s_clean, "stock"))
+
+    results = {
+        "crypto": {},
+        "stocks": {},
+        "items": [],
+        "last_updated": time.time()
+    }
+
+    for label, y_ticker, category in tickers:
+        try:
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{y_ticker}?interval=1d"
+            resp = requests.get(url, headers=headers, timeout=4.0)
+            if resp.status_code == 200:
+                chart_res = resp.json().get("chart", {}).get("result", [])
+                if chart_res:
+                    meta = chart_res[0].get("meta", {})
+                    price = meta.get("regularMarketPrice")
+                    prev_close = meta.get("previousClose") or meta.get("chartPreviousClose") or price
+                    if price is not None:
+                        change_pct = ((price - prev_close) / prev_close) * 100.0 if prev_close else 0.0
+                        item_info = {
+                            "symbol": label,
+                            "ticker": y_ticker,
+                            "price": float(price),
+                            "change_pct": round(float(change_pct), 2),
+                            "category": category
+                        }
+                        if category == "crypto":
+                            results["crypto"][label] = item_info
+                        else:
+                            results["stocks"][label] = item_info
+                        results["items"].append(item_info)
+        except Exception:
+            pass
+
+    return {
+        "crypto": list(results["crypto"].values()),
+        "stocks": list(results["stocks"].values()),
+        "crypto_dict": results["crypto"],
+        "stocks_dict": results["stocks"],
+        "items": results["items"],
+        "last_updated": time.time()
+    }
+
+
+def _market_stats_worker():
+    while True:
+        try:
+            cfg = load_config()
+            if cfg.get("enable_market_screen", True):
+                interval_min = float(cfg.get("market_cache_minutes", 5))
+                res = fetch_market_data(cfg)
+                if res and res.get("items"):
+                    with _market_lock:
+                        global _cached_market_stats
+                        _cached_market_stats = res
+                    save_market_cache(res)
+                time.sleep(interval_min * 60)
+            else:
+                time.sleep(30)
+        except Exception:
+            time.sleep(60)
+
+
+def start_market_worker_if_needed(cfg):
+    global _market_worker_started
+    if cfg.get("enable_market_screen", True) and not _market_worker_started:
+        _market_worker_started = True
+        t = threading.Thread(target=_market_stats_worker, daemon=True)
+        t.start()
+
+
+def get_cached_market_stats(cfg):
+    global _cached_market_stats
+    with _market_lock:
+        if _cached_market_stats is not None:
+            return _cached_market_stats
+
+    cached = load_market_cache()
+    if cached:
+        with _market_lock:
+            _cached_market_stats = cached
+        return cached
+
+    fresh = fetch_market_data(cfg)
+    if fresh and fresh.get("items"):
+        with _market_lock:
+            _cached_market_stats = fresh
+        save_market_cache(fresh)
+        return fresh
+
+    return {"crypto": {}, "stocks": {}, "items": [], "last_updated": time.time()}
+
+
+# Minecraft Self-Hosted Server Status Integration
+_mc_server_worker_started = False
+_mc_server_lock = threading.Lock()
+_cached_mc_server_status = None
+MC_SERVER_CACHE_FILE = os.path.join(LOG_DIR, "mc_server_cache.json")
+
+
+def load_mc_server_cache():
+    if os.path.exists(MC_SERVER_CACHE_FILE):
+        try:
+            with open(MC_SERVER_CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+
+def save_mc_server_cache(data):
+    try:
+        with open(MC_SERVER_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+
+def fetch_minecraft_server_status(cfg=None):
+    if cfg is None:
+        cfg = load_config()
+    server_addr = str(cfg.get("minecraft_server_address", "minecraft.protutech.vip")).strip()
+    server_port = int(cfg.get("minecraft_server_port", 25565))
+    server_label = str(cfg.get("minecraft_server_label", "Protutech Server")).strip()
+
+    result = {
+        "online": False,
+        "hostname": server_addr,
+        "port": server_port,
+        "label": server_label,
+        "players_online": 0,
+        "players_max": 20,
+        "version": "1.20+",
+        "motd": f"{server_label} • Offline",
+        "icon": None,
+        "last_checked": time.time()
+    }
+
+    # 1. Query mcsrvstat.us
+    try:
+        api_url = f"https://api.mcsrvstat.us/3/{server_addr}:{server_port}"
+        resp = requests.get(api_url, timeout=4.0)
+        if resp.status_code == 200:
+            data = resp.json()
+            is_online = bool(data.get("online", False))
+            result["online"] = is_online
+            if is_online:
+                p_info = data.get("players", {})
+                result["players_online"] = int(p_info.get("online", 0))
+                result["players_max"] = int(p_info.get("max", 20))
+                result["version"] = str(data.get("version", "1.20+"))
+                motd_obj = data.get("motd", {})
+                if isinstance(motd_obj, dict):
+                    clean_motd = motd_obj.get("clean", [])
+                    result["motd"] = " ".join(clean_motd).strip() if clean_motd else f"{server_label} SMP"
+                elif isinstance(motd_obj, list):
+                    result["motd"] = " ".join(motd_obj).strip()
+                result["icon"] = data.get("icon")
+                return result
+    except Exception:
+        pass
+
+    # 2. Fallback direct socket ping
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(2.0)
+        s.connect((server_addr, server_port))
+        s.close()
+        result["online"] = True
+        result["motd"] = f"{server_label} Online"
+    except Exception:
+        result["online"] = False
+
+    return result
+
+
+def _mc_server_stats_worker():
+    while True:
+        try:
+            cfg = load_config()
+            if cfg.get("enable_minecraft_server_screen", True):
+                res = fetch_minecraft_server_status(cfg)
+                if res:
+                    with _mc_server_lock:
+                        global _cached_mc_server_status
+                        _cached_mc_server_status = res
+                    save_mc_server_cache(res)
+                time.sleep(60)
+            else:
+                time.sleep(30)
+        except Exception:
+            time.sleep(60)
+
+
+def start_mc_server_worker_if_needed(cfg):
+    global _mc_server_worker_started
+    if cfg.get("enable_minecraft_server_screen", True) and not _mc_server_worker_started:
+        _mc_server_worker_started = True
+        t = threading.Thread(target=_mc_server_stats_worker, daemon=True)
+        t.start()
+
+
+def get_cached_mc_server_status(cfg):
+    global _cached_mc_server_status
+    with _mc_server_lock:
+        if _cached_mc_server_status is not None:
+            return _cached_mc_server_status
+
+    cached = load_mc_server_cache()
+    if cached:
+        with _mc_server_lock:
+            _cached_mc_server_status = cached
+        return cached
+
+    fresh = fetch_minecraft_server_status(cfg)
+    if fresh:
+        with _mc_server_lock:
+            _cached_mc_server_status = fresh
+        save_mc_server_cache(fresh)
+        return fresh
+
+    return {"online": False, "hostname": "minecraft.protutech.vip", "players_online": 0, "players_max": 20, "last_checked": time.time()}
+
+
+# Stoat Chat Presence Sync Helper
+def sync_stoat_status(current_screen, cfg):
+    """
+    Syncs current active Discord RPC screen details and state to Stoat / Revolt Chat.
+    Uses PATCH https://api.stoat.chat/users/@me (or configured stoat_api_url)
+    """
+    if not cfg.get("enable_stoat_sync", False):
+        return
+    token = str(cfg.get("stoat_token", "")).strip()
+    if not token:
+        return
+
+    api_url = str(cfg.get("stoat_api_url", "https://api.stoat.chat")).rstrip("/")
+    token_type = str(cfg.get("stoat_token_type", "user")).lower()
+    headers = {
+        "Content-Type": "application/json"
+    }
+    if token_type == "bot":
+        headers["x-bot-token"] = token
+    else:
+        headers["X-Session-Token"] = token
+
+    status_text = f"{current_screen.get('details', '')} | {current_screen.get('state', '')}"
+    if len(status_text) > 120:
+        status_text = status_text[:117] + "..."
+
+    payload = {
+        "status": {
+            "text": status_text,
+            "presence": cfg.get("stoat_presence", "Online")
+        }
+    }
+
+    def _do_patch():
+        try:
+            requests.patch(f"{api_url}/users/@me", headers=headers, json=payload, timeout=4.0)
+        except Exception:
+            pass
+
+    threading.Thread(target=_do_patch, daemon=True).start()
+
+
+
 # Web Dashboard Server Integration
 _dashboard_state = {
     "user_id": "andrex",
@@ -1469,11 +1835,6 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
                 req_key = q.get("key", [""])[0] or q.get("host_key", [""])[0]
 
             if req_key and configured_key and req_key == configured_key:
-                return True
-
-            client_ip = self.client_address[0]
-            has_proxy = bool(self.headers.get("CF-Connecting-IP") or self.headers.get("X-Forwarded-For"))
-            if not has_proxy and client_ip in ("127.0.0.1", "::1", "localhost"):
                 return True
         except Exception:
             pass
@@ -1535,11 +1896,27 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
                 "enable_kryptex_screen": cfg.get("enable_kryptex_screen", True),
                 "enable_minecraft_screen": cfg.get("enable_minecraft_screen", True),
                 "minecraft_only_when_playing": cfg.get("minecraft_only_when_playing", False),
+                "enable_minecraft_server_screen": cfg.get("enable_minecraft_server_screen", True),
+                "minecraft_server_address": cfg.get("minecraft_server_address", "minecraft.protutech.vip"),
+                "minecraft_server_port": cfg.get("minecraft_server_port", 25565),
+                "minecraft_server_label": cfg.get("minecraft_server_label", "Protutech Server"),
+                "enable_market_screen": cfg.get("enable_market_screen", True),
+                "market_crypto_list": cfg.get("market_crypto_list", ["BTC", "ETH", "SOL"]),
+                "market_stocks_list": cfg.get("market_stocks_list", ["NVDA", "AAPL", "MSFT", "SPY"]),
+                "market_cache_minutes": cfg.get("market_cache_minutes", 5),
+                "enable_stoat_sync": cfg.get("enable_stoat_sync", False),
+                "stoat_api_url": cfg.get("stoat_api_url", "https://api.stoat.chat"),
+                "stoat_token": cfg.get("stoat_token", ""),
+                "stoat_token_type": cfg.get("stoat_token_type", "user"),
+                "stoat_presence": cfg.get("stoat_presence", "Online"),
                 "enable_speed_screen": cfg.get("enable_speed_screen", True),
                 "enable_steam_screen": cfg.get("enable_steam_screen", True),
                 "enable_github_screen": cfg.get("enable_github_screen", True),
                 "enable_free_games_screen": cfg.get("enable_free_games_screen", True),
                 "enable_game_activity": cfg.get("enable_game_activity", False),
+                "enable_active_games_hub": cfg.get("enable_active_games_hub", True),
+                "disabled_games": cfg.get("disabled_games", []),
+                "custom_games": cfg.get("custom_games", {}),
                 "speedtest_interval_minutes": cfg.get("speedtest_interval_minutes", 30),
                 "steam_cache_minutes": cfg.get("steam_cache_minutes", 15),
                 "github_cache_minutes": cfg.get("github_cache_minutes", 30),
@@ -1660,13 +2037,118 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+        elif parsed_path == "/api/games":
+            cfg = load_config()
+            detected, _ = detect_active_games(cfg, max_games=10, return_pids=True)
+            disabled_games = cfg.get("disabled_games", [])
+            custom_games = cfg.get("custom_games", {})
+
+            known_list = []
+            for exe_name, g_info in KNOWN_GAMES.items():
+                if isinstance(g_info, tuple):
+                    name, slug = g_info
+                else:
+                    name = g_info
+                    slug = re.sub(r'[^a-z0-9_]', '', name.lower().replace(" ", "_"))
+
+                is_running = any(d.get("slug") == slug or d.get("name") == name for d in detected)
+                is_disabled = (slug.lower() in [x.lower() for x in disabled_games]) or (name.lower() in [x.lower() for x in disabled_games])
+                known_list.append({
+                    "name": name,
+                    "slug": slug,
+                    "exe": exe_name,
+                    "running": is_running,
+                    "disabled": is_disabled
+                })
+
+            for c_exe, c_val in custom_games.items():
+                c_name = c_val.get("name", c_exe) if isinstance(c_val, dict) else str(c_val)
+                c_slug = c_val.get("slug") if isinstance(c_val, dict) else re.sub(r'[^a-z0-9_]', '', c_name.lower().replace(" ", "_"))
+                is_running = any(d.get("slug") == c_slug or d.get("name") == c_name for d in detected)
+                is_disabled = (c_slug.lower() in [x.lower() for x in disabled_games]) or (c_name.lower() in [x.lower() for x in disabled_games])
+                known_list.append({
+                    "name": c_name,
+                    "slug": c_slug,
+                    "exe": c_exe,
+                    "running": is_running,
+                    "disabled": is_disabled,
+                    "custom": True
+                })
+
+            payload = json.dumps({
+                "detected": detected,
+                "known": known_list,
+                "disabled_games": disabled_games
+            }).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        elif parsed_path == "/api/market":
+            cfg = load_config()
+            market_data = get_cached_market_stats(cfg)
+            payload = json.dumps(market_data).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        elif parsed_path == "/api/minecraft/server":
+            cfg = load_config()
+            mc_srv = get_cached_mc_server_status(cfg)
+            payload = json.dumps(mc_srv).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
         else:
             self.send_response(404)
             self.end_headers()
 
     def do_POST(self):
         parsed_path = self.path.split("?")[0]
-        if parsed_path == "/api/config":
+        if parsed_path == "/api/auth/login":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length)
+                data = json.loads(body.decode("utf-8")) if body else {}
+                key = str(data.get("key") or data.get("host_key") or "").strip()
+                cfg = load_config()
+                configured_key = str(cfg.get("host_key", "andrex-host-2026")).strip()
+
+                if key and configured_key and key == configured_key:
+                    payload = json.dumps({"is_host": True, "token": configured_key, "message": "Host login successful"}).encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    return
+                else:
+                    self.send_response(401)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(b'{"error": "Invalid host key", "is_host": false}')
+                    return
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+                return
+
+        elif parsed_path == "/api/config":
             if not self.is_request_host():
                 self.send_response(403)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -1685,12 +2167,15 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
                     "update_interval_seconds", "active_screen",
                     "enable_proxmox_screen", "enable_kryptex_screen",
                     "enable_minecraft_screen", "minecraft_only_when_playing",
-                    "enable_speed_screen",
-                    "enable_steam_screen", "enable_github_screen",
-                    "enable_free_games_screen", "enable_game_activity",
+                    "enable_minecraft_server_screen", "minecraft_server_address",
+                    "minecraft_server_port", "minecraft_server_label",
+                    "enable_market_screen", "market_crypto_list", "market_stocks_list", "market_cache_minutes",
+                    "enable_stoat_sync", "stoat_api_url", "stoat_token", "stoat_token_type", "stoat_presence",
+                    "enable_speed_screen", "enable_steam_screen", "enable_github_screen",
+                    "enable_free_games_screen", "enable_game_activity", "enable_active_games_hub",
                     "speedtest_interval_minutes", "steam_cache_minutes",
                     "github_cache_minutes", "free_games_cache_minutes",
-                    "hidden_screens", "custom_trackers", "host_key"
+                    "hidden_screens", "custom_trackers", "disabled_games", "custom_games", "host_key"
                 ]
 
                 for k in allowed_keys:
@@ -1705,6 +2190,160 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "ok", "message": "Configuration saved", "config": cfg}).encode("utf-8"))
+                return
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+                return
+
+        elif parsed_path == "/api/games/toggle":
+            if not self.is_request_host():
+                self.send_response(403)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(b'{"error": "Forbidden: Main host access required"}')
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length)
+                data = json.loads(body.decode("utf-8"))
+                slug = str(data.get("slug") or data.get("name") or "").strip().lower()
+                disabled = bool(data.get("disabled", True))
+
+                cfg = load_config()
+                disabled_list = list(cfg.get("disabled_games", []))
+
+                if disabled:
+                    if slug and slug not in [x.lower() for x in disabled_list]:
+                        disabled_list.append(slug)
+                else:
+                    disabled_list = [x for x in disabled_list if x.lower() != slug]
+
+                cfg["disabled_games"] = disabled_list
+                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, indent=2)
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "disabled_games": disabled_list}).encode("utf-8"))
+                return
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+                return
+
+        elif parsed_path == "/api/games/add":
+            if not self.is_request_host():
+                self.send_response(403)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(b'{"error": "Forbidden: Main host access required"}')
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length)
+                data = json.loads(body.decode("utf-8"))
+                name = str(data.get("name", "")).strip()
+                exe = str(data.get("exe", "")).strip().lower()
+                if not exe.endswith(".exe"):
+                    exe += ".exe"
+
+                cfg = load_config()
+                custom_games = cfg.get("custom_games", {})
+                custom_games[exe] = {
+                    "name": name or exe.replace(".exe", "").title(),
+                    "slug": re.sub(r'[^a-z0-9_]', '', (name or exe).lower().replace(" ", "_"))
+                }
+                cfg["custom_games"] = custom_games
+                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, indent=2)
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "custom_games": custom_games}).encode("utf-8"))
+                return
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+                return
+
+        elif parsed_path == "/api/trackers/add":
+            if not self.is_request_host():
+                self.send_response(403)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(b'{"error": "Forbidden: Main host access required"}')
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length)
+                new_tracker = json.loads(body.decode("utf-8"))
+                cfg = load_config()
+                current_trackers = list(cfg.get("custom_trackers", []))
+                current_trackers.append(new_tracker)
+                cfg["custom_trackers"] = current_trackers
+                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, indent=2)
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "custom_trackers": current_trackers}).encode("utf-8"))
+                return
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+                return
+
+        elif parsed_path == "/api/trackers/delete":
+            if not self.is_request_host():
+                self.send_response(403)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(b'{"error": "Forbidden: Main host access required"}')
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length)
+                data = json.loads(body.decode("utf-8"))
+                tracker_id = str(data.get("id") or data.get("name") or "").strip()
+
+                cfg = load_config()
+                current_trackers = [ct for ct in cfg.get("custom_trackers", []) if ct.get("id") != tracker_id and ct.get("name") != tracker_id]
+                cfg["custom_trackers"] = current_trackers
+                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, indent=2)
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "custom_trackers": current_trackers}).encode("utf-8"))
                 return
             except Exception as e:
                 self.send_response(400)
@@ -2184,8 +2823,14 @@ def detect_active_games(cfg, max_games=3, return_pids=False):
     seen_names = set()
     all_game_pids = set()
 
+    disabled_set = set(str(x).lower().strip() for x in cfg.get("disabled_games", []))
+
     def add_game(name, slug, steam_appid=None, exe_name=None, discord_icon=None, pid=None, pids=None):
-        if name and name.lower() not in seen_names:
+        if not name:
+            return
+        if (slug and slug.lower() in disabled_set) or (name and name.lower() in disabled_set) or (exe_name and exe_name.lower() in disabled_set):
+            return
+        if name.lower() not in seen_names:
             seen_names.add(name.lower())
             detected.append({
                 "name": name,
@@ -2595,7 +3240,7 @@ def main():
             now = time.time()
             detected_games, all_game_pids = detect_active_games(cfg, max_games=5, return_pids=True)
             active_games = []
-            if cfg.get("enable_game_activity", True):
+            if cfg.get("enable_game_activity", True) or cfg.get("enable_active_games_hub", True):
                 active_games = detected_games
                 # Update multi-game tracking sessions
                 for g_info in active_games:
@@ -2617,7 +3262,10 @@ def main():
             else:
                 _game_sessions.clear()
 
-            stats = get_cached_proxmox_stats(cfg)
+            try:
+                stats = get_cached_proxmox_stats(cfg)
+            except Exception:
+                stats = make_default_proxmox_stats(cfg)
             label = cfg.get("server_label", "Protutech")
 
             # Build list of active screens
@@ -2625,12 +3273,18 @@ def main():
 
             # Screen 1: Proxmox Overview (Performance, Workloads & Storage)
             if cfg.get("enable_proxmox_screen", True):
-                node_name = stats["node"]
-                node_tag = f"{label}: {node_name}" if label.lower() != node_name.lower() else label
+                node_name = stats.get("node", "Protutech")
+                node_tag = f"{label}: {node_name}" if label.lower() != str(node_name).lower() else label
+                if stats.get("offline"):
+                    pve_details = f"{node_tag} | Hypervisor Standby"
+                    pve_state = "Protutech Cloud Services"
+                else:
+                    pve_details = f"{node_tag} (Up: {stats.get('uptime', '0m')}) | {stats.get('running_vms', 0)} VMs | {stats.get('running_lxcs', 0)} LXCs"
+                    pve_state = f"CPU: {stats.get('cpu_pct', 0.0):.1f}% | RAM: {stats.get('mem_pct', 0.0):.0f}% | Storage: {stats.get('storage_used_gb', 0.0):.0f}G/{stats.get('storage_total_tb', 1.0):.1f}TB"
                 screens.append({
                     "name": "Proxmox Overview",
-                    "details": f"{node_tag} (Up: {stats['uptime']}) | {stats['running_vms']} VMs | {stats['running_lxcs']} LXCs",
-                    "state": f"CPU: {stats['cpu_pct']:.1f}% | RAM: {stats['mem_pct']:.0f}% | Storage: {stats['storage_used_gb']:.0f}G/{stats['storage_total_tb']:.1f}TB"
+                    "details": pve_details,
+                    "state": pve_state
                 })
 
             # Screen 2: Cryptocurrency Mining Status (when enabled)
@@ -2665,13 +3319,33 @@ def main():
                         "state": state
                     })
 
-            # Screen 3: Current Game Activity (Supports up to 3 separate screens for active games)
-            if cfg.get("enable_game_activity", True):
-                if _game_sessions:
-                    first_game = list(_game_sessions.values())[0]
-                    _game_tracker["current"] = first_game["game_info"]["name"]
-                    _game_tracker["start_time"] = first_game["start_time"]
+            # Screen 3: Game Activity & Active Games Hub (when enabled)
+            if cfg.get("enable_game_activity", True) or cfg.get("enable_active_games_hub", True):
+                if active_games:
+                    first_game = active_games[0]
+                    _game_tracker["current"] = first_game["name"]
+                    _game_tracker["start_time"] = _game_sessions.get(first_game["name"], {}).get("start_time", now)
 
+                    # 3a. Combined Active Games Hub Screen (Dynamic party count based on games)
+                    if cfg.get("enable_active_games_hub", True):
+                        g_names = [g["name"] for g in active_games]
+                        display_titles = " • ".join(g_names[:3])
+                        if len(g_names) > 3:
+                            display_titles += f" (+{len(g_names) - 3} more)"
+                        cnt = len(active_games)
+                        hub_start = min([_game_sessions[g["name"]]["start_time"] for g in active_games if g["name"] in _game_sessions] or [boot_time])
+                        screens.append({
+                            "name": "Active Games Hub",
+                            "screen_type": "games_hub",
+                            "details": f"Active Games: {display_titles}",
+                            "state": f"{cnt} Running • Gaming Hub",
+                            "active_games": active_games,
+                            "party_size": [cnt, max(cnt, 4)],
+                            "party_id": "active_games_hub",
+                            "start_time": hub_start
+                        })
+
+                    # 3b. Separate screens for each running game (up to 3)
                     for game_name, session in list(_game_sessions.items())[:3]:
                         elapsed = format_uptime(now - session["start_time"])
                         screens.append({
@@ -2685,19 +3359,28 @@ def main():
                 else:
                     _game_tracker["current"] = None
                     _game_tracker["start_time"] = None
-                    screens.append({
-                        "name": "Game Activity",
-                        "screen_type": "game",
-                        "details": "Gaming: Standby",
-                        "state": "No game currently open",
-                        "game_info": None,
-                        "start_time": boot_time
-                    })
+                    if cfg.get("enable_active_games_hub", True):
+                        screens.append({
+                            "name": "Active Games Hub",
+                            "screen_type": "games_hub",
+                            "details": "Gaming: Standby",
+                            "state": "No games currently open",
+                            "active_games": [],
+                            "start_time": boot_time
+                        })
+                    else:
+                        screens.append({
+                            "name": "Game Activity",
+                            "screen_type": "game",
+                            "details": "Gaming: Standby",
+                            "state": "No game currently open",
+                            "game_info": None,
+                            "start_time": boot_time
+                        })
 
-            # Screen 4: Optional Minecraft Screen (when enabled)
-            if cfg.get("enable_minecraft_screen", False):
+            # Screen 4: Local Minecraft Client & Modpack Screen (when enabled)
+            if cfg.get("enable_minecraft_screen", True):
                 mc_status = fetch_minecraft_status(cfg)
-                # If configured to only broadcast when actively playing, skip if offline
                 if not (cfg.get("minecraft_only_when_playing", False) and not mc_status.get("online")):
                     screens.append({
                         "name": "Minecraft",
@@ -2706,6 +3389,29 @@ def main():
                         "state": mc_status["state"],
                         "mc_status": mc_status,
                         "start_time": mc_status.get("start_time", boot_time) if mc_status.get("online") else boot_time
+                    })
+
+            # Screen 4b: Minecraft Self-Hosted Server Screen (when enabled)
+            if cfg.get("enable_minecraft_server_screen", True):
+                start_mc_server_worker_if_needed(cfg)
+                mc_srv = get_cached_mc_server_status(cfg)
+                if mc_srv:
+                    srv_label = mc_srv.get("label") or "Protutech Server"
+                    if mc_srv.get("online"):
+                        p_on = mc_srv.get("players_online", 0)
+                        p_max = mc_srv.get("players_max", 20)
+                        mc_srv_details = f"MC Server: {p_on}/{p_max} Players Online"
+                        mc_srv_state = f"{srv_label} • v{mc_srv.get('version', '1.20+')}"
+                    else:
+                        mc_srv_details = "MC Server: Offline • Standby"
+                        mc_srv_state = f"{mc_srv.get('hostname', 'minecraft.protutech.vip')} • Standby"
+
+                    screens.append({
+                        "name": "Minecraft Server",
+                        "screen_type": "minecraft_server",
+                        "details": mc_srv_details,
+                        "state": mc_srv_state,
+                        "mc_server_data": mc_srv
                     })
 
             # Screen 5: Optional Network Speed & Latency (when enabled)
@@ -2723,7 +3429,6 @@ def main():
                         return f"{mbps / 1000:.2f} Gbps"
                     return f"{mbps:.0f} Mbps"
 
-                # Always show past / cached speeds; never show "Testing Bandwidth..."
                 d_str = format_net_speed(d_val) if d_val is not None else "8.12 Gbps"
                 u_str = format_net_speed(u_val) if u_val is not None else "4.42 Gbps"
                 speed_details = f"Internet: {d_str} Down | {u_str} Up"
@@ -2737,18 +3442,21 @@ def main():
                     "state": speed_state
                 })
 
-            # Screen 6: Steam Profile (when enabled)
+            # Screen 6: Steam Profile with Full Stats (when enabled)
             if cfg.get("enable_steam_screen", True):
                 start_steam_worker_if_needed(cfg)
                 steam_data = get_cached_steam_stats(cfg)
                 if steam_data:
+                    lvl = steam_data.get("level", "0")
                     achs = steam_data.get("achievements") or "0"
                     bdgs = steam_data.get("badges") or "0"
+                    pfg = steam_data.get("perfect_games") or "0"
+                    st_status = steam_data.get("status") or "Online"
                     screens.append({
                         "name": "Steam Profile",
                         "screen_type": "steam",
-                        "details": f"Steam: {steam_data['persona']} | Level {steam_data['level']}",
-                        "state": f"{achs} Achievements | {bdgs} Badges",
+                        "details": f"Steam: {steam_data['persona']} (Lvl {lvl}) • {st_status}",
+                        "state": f"{achs} Achs | {bdgs} Badges | {pfg} Perfect",
                         "steam_data": steam_data
                     })
 
@@ -2802,6 +3510,40 @@ def main():
                     "state": fg_state,
                     "free_games_data": fg_stats
                 })
+
+            # Screen 8b: Recommended Crypto & Stocks Market Watch (when enabled)
+            if cfg.get("enable_market_screen", True):
+                start_market_worker_if_needed(cfg)
+                m_data = get_cached_market_stats(cfg)
+                if m_data and m_data.get("items"):
+                    c_dict = m_data.get("crypto_dict") or {x["symbol"]: x for x in m_data.get("crypto", []) if isinstance(x, dict)}
+                    s_dict = m_data.get("stocks_dict") or {x["symbol"]: x for x in m_data.get("stocks", []) if isinstance(x, dict)}
+
+                    c_parts = []
+                    for c_sym in ("BTC", "ETH", "SOL"):
+                        if c_sym in c_dict:
+                            it = c_dict[c_sym]
+                            pr = it["price"]
+                            pr_str = f"${pr/1000:.1f}K" if pr >= 1000 else f"${pr:.2f}"
+                            sgn = "+" if it["change_pct"] >= 0 else ""
+                            c_parts.append(f"{c_sym} {pr_str} ({sgn}{it['change_pct']}%)")
+                    m_details = " • ".join(c_parts[:2]) if c_parts else "Crypto Market Active"
+
+                    s_parts = []
+                    for s_sym in ("NVDA", "AAPL", "MSFT", "SPY"):
+                        if s_sym in s_dict:
+                            it = s_dict[s_sym]
+                            sgn = "+" if it["change_pct"] >= 0 else ""
+                            s_parts.append(f"{s_sym} ${it['price']:.0f} ({sgn}{it['change_pct']}%)")
+                    m_state = " • ".join(s_parts[:2]) if s_parts else "Stocks Market Active"
+
+                    screens.append({
+                        "name": "Crypto & Stocks",
+                        "screen_type": "market",
+                        "details": m_details,
+                        "state": m_state,
+                        "market_data": m_data
+                    })
 
             # Screen 9+: Custom Trackers (when configured)
             for ct in cfg.get("custom_trackers", []):
@@ -2883,7 +3625,14 @@ def main():
                     "repos": "GitHub Repositories",
                     "freegames": "Free Games",
                     "freegame": "Free Games",
-                    "games": "Free Games"
+                    "games": "Free Games",
+                    "minecraftserver": "Minecraft Server",
+                    "mcserver": "Minecraft Server",
+                    "market": "Crypto & Stocks",
+                    "crypto": "Crypto & Stocks",
+                    "stocks": "Crypto & Stocks",
+                    "activegames": "Active Games",
+                    "hub": "Active Games"
                 }
                 target_name = alias_map.get(active_mode, active_mode)
                 for s in screens:
@@ -2930,6 +3679,12 @@ def main():
                                 if not mc_icon and s.get("mc_status", {}).get("local_icon_path"):
                                     mc_icon = "/api/minecraft/icon"
                                 s_icon = mc_icon or BUILTIN_GAME_ICONS.get("minecraft", DEFAULT_PROXMOX_ICON)
+                            elif s_name == "Minecraft Server":
+                                s_icon = BUILTIN_GAME_ICONS.get("minecraft", DEFAULT_PROXMOX_ICON)
+                            elif s_name == "Crypto & Stocks":
+                                s_icon = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/tradingview.png"
+                            elif s_name in ("Active Games", "Active Games Hub"):
+                                s_icon = BUILTIN_GAME_ICONS.get("roblox", DEFAULT_STEAM_ICON)
                             elif s_type == "game":
                                 s_icon = resolve_game_image(s.get("game_info"), cfg) or default_large
                             elif s_type == "custom":
@@ -2955,7 +3710,15 @@ def main():
                             "github_stats": s.get("github_stats"),
                             "free_games_data": s.get("free_games_data"),
                             "game_info": s.get("game_info"),
-                            "mc_status": s.get("mc_status")
+                            "mc_status": s.get("mc_status"),
+                            "server_data": s.get("mc_server_data"),
+                            "mc_server_data": s.get("mc_server_data"),
+                            "market_data": s.get("market_data"),
+                            "games_hub": {
+                                "active_count": len(s.get("active_games", [])),
+                                "games": s.get("active_games", [])
+                            } if s.get("name") in ("Active Games", "Active Games Hub") else None,
+                            "active_games": s.get("active_games")
                         })
 
                     user_id = str(cfg.get("user_id", "andrex")).strip().lower()
@@ -3112,6 +3875,50 @@ def main():
                 small_img = default_large
                 small_txt = "Protutech Cloud"
 
+            elif current_screen["name"] == "Minecraft Server":
+                mc_srv = current_screen.get("mc_server_data", {})
+                srv_icon = mc_srv.get("icon")
+                if srv_icon and (srv_icon.startswith("http://") or srv_icon.startswith("https://")):
+                    large_img = srv_icon
+                elif cfg.get("minecraft_server_image"):
+                    large_img = cfg["minecraft_server_image"]
+                else:
+                    large_img = BUILTIN_GAME_ICONS.get("minecraft", DEFAULT_PROXMOX_ICON)
+
+                if mc_srv.get("online"):
+                    large_txt = f"{mc_srv.get('label', 'Minecraft Server')} | {mc_srv.get('players_online', 0)}/{mc_srv.get('players_max', 20)} Online"
+                else:
+                    large_txt = f"{mc_srv.get('label', 'Minecraft Server')} | Standby"
+                if len(large_txt) > 120:
+                    large_txt = large_txt[:117] + "..."
+                small_img = default_large
+                small_txt = "Protutech Cloud"
+
+            elif current_screen["name"] == "Crypto & Stocks":
+                market_icon = cfg.get("market_image") or "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/tradingview.png"
+                large_img = market_icon
+                large_txt = "Market Watch | BTC, ETH, SOL, NVDA, AAPL, MSFT, SPY"
+                if len(large_txt) > 120:
+                    large_txt = large_txt[:117] + "..."
+                small_img = default_large
+                small_txt = "Protutech Cloud"
+
+            elif current_screen["name"] == "Active Games":
+                active_g = current_screen.get("active_games", [])
+                if active_g:
+                    first_g = active_g[0]
+                    chosen_g_img = resolve_game_image(first_g, cfg)
+                    large_img = chosen_g_img or BUILTIN_GAME_ICONS.get("roblox", DEFAULT_STEAM_ICON)
+                    g_names_all = ", ".join(g["name"] for g in active_g)
+                    large_txt = f"Active: {g_names_all} | Gaming Hub"
+                else:
+                    large_img = default_large
+                    large_txt = "Gaming Hub | Standby"
+                if len(large_txt) > 120:
+                    large_txt = large_txt[:117] + "..."
+                small_img = default_large
+                small_txt = "Protutech Cloud"
+
             elif current_screen["name"] == "Steam Profile":
                 s_data = current_screen.get("steam_data", {})
                 s_avatar = cfg.get("steam_image") or s_data.get("avatar_url")
@@ -3123,10 +3930,12 @@ def main():
                     large_img = BUILTIN_GAME_ICONS.get("steam", default_large)
 
                 persona = s_data.get("persona", "Steam User")
-                level = s_data.get("level", "0")
+                level = str(s_data.get("level", "0"))
                 achs = s_data.get("achievements") or "0"
                 bdgs = s_data.get("badges") or "0"
-                large_txt = f"{persona} | Level {level} • {achs} Achs • {bdgs} Badges"
+                pfg = s_data.get("perfect_games") or "0"
+                hrs = s_data.get("hours") or "0"
+                large_txt = f"{persona} | Lvl {level} • {s_data.get('games', '0')} Games • {achs} Achs • {bdgs} Badges • {hrs}h"
                 if len(large_txt) > 120:
                     large_txt = large_txt[:117] + "..."
                 small_img = default_large
@@ -3214,10 +4023,25 @@ def main():
                     mods_cnt = mc_info["mods_count"]
                     activity_kwargs["party_size"] = [mods_cnt, mods_cnt]
                     activity_kwargs["party_id"] = "minecraft_mods"
+            elif current_screen["name"] == "Minecraft Server":
+                mc_srv = current_screen.get("mc_server_data", {})
+                if mc_srv.get("online"):
+                    activity_kwargs["party_size"] = [mc_srv.get("players_online", 0), mc_srv.get("players_max", 20)]
+                    activity_kwargs["party_id"] = "mc_server_players"
+            elif current_screen["name"] == "Active Games":
+                if current_screen.get("party_size"):
+                    activity_kwargs["party_size"] = current_screen["party_size"]
+                    activity_kwargs["party_id"] = "active_games_hub"
+            elif current_screen["name"] == "Steam Profile":
+                st_data = current_screen.get("steam_data", {})
+                st_lvl = str(st_data.get("level", "0")).replace(',', '').strip()
+                if st_lvl.isdigit() and int(st_lvl) > 0:
+                    activity_kwargs["party_size"] = [int(st_lvl), int(st_lvl)]
+                    activity_kwargs["party_id"] = "steam_level"
             elif (cfg.get("show_party_badge", True) 
                   and stats["total_guests"] > 0 
                   and current_screen.get("screen_type") != "game"
-                  and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity", "Network Speed", "Steam Profile", "GitHub Repositories", "GitHub", "Free Games", "Minecraft")):
+                  and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity", "Network Speed", "Steam Profile", "GitHub Repositories", "GitHub", "Free Games", "Minecraft", "Minecraft Server", "Crypto & Stocks", "Active Games")):
                 activity_kwargs["party_size"] = [stats["running_guests"], stats["total_guests"]]
                 activity_kwargs["party_id"] = "protutech_guests"
 
@@ -3283,6 +4107,7 @@ def main():
 
             # Update Discord Rich Presence on the chosen priority PID
             rpc.update(pid=target_pid, **activity_kwargs)
+            sync_stoat_status(current_screen, cfg)
             print(f"[{time.strftime('%X')}] [Screen {screen_index}/{len(screens)} - {current_screen['name']}] [PID: {target_pid}] {current_screen['details']} | {current_screen['state']}", flush=True)
 
         except requests.exceptions.RequestException as e:

@@ -933,6 +933,191 @@
       header { flex-direction: column; align-items: flex-start; }
       .grid { grid-template-columns: 1fr; }
     }
+
+    /* Widget Catalog Grid & Card */
+    .widget-catalog-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+      gap: 14px;
+      margin-top: 12px;
+    }
+
+    .widget-catalog-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: all 0.2s ease;
+    }
+
+    .widget-catalog-card:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.16);
+    }
+
+    .widget-catalog-card.active {
+      border-color: rgba(88, 101, 242, 0.4);
+      background: rgba(88, 101, 242, 0.06);
+    }
+
+    .widget-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .widget-card-title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .widget-card-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      object-fit: cover;
+    }
+
+    .widget-card-name {
+      font-size: 0.92rem;
+      font-weight: 700;
+    }
+
+    .widget-card-desc {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      line-height: 1.3;
+    }
+
+    .widget-card-fields {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .widget-test-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      font-size: 0.75rem;
+      padding: 5px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .widget-test-btn:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .test-result-box {
+      font-size: 0.74rem;
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      display: none;
+      word-break: break-all;
+    }
+
+    /* Market Ticker Styling */
+    .market-ticker-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .market-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 0.76rem;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--card-border);
+      transition: all 0.2s ease;
+    }
+
+    .market-pill .ticker-sym {
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .market-pill .ticker-price {
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .market-pill .ticker-change {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+
+    .market-pill.market-up .ticker-change {
+      background: rgba(35, 165, 90, 0.2);
+      color: #57f287;
+      border: 1px solid rgba(35, 165, 90, 0.35);
+    }
+
+    .market-pill.market-down .ticker-change {
+      background: rgba(242, 63, 67, 0.2);
+      color: #ff7b72;
+      border: 1px solid rgba(242, 63, 67, 0.35);
+    }
+
+    /* Game Items Styling */
+    .game-item-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 14px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      transition: all 0.2s;
+    }
+
+    .game-item-row:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .game-status-badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .game-status-badge.running {
+      background: rgba(35, 165, 90, 0.2);
+      border: 1px solid rgba(35, 165, 90, 0.4);
+      color: #57f287;
+    }
+
+    .game-status-badge.idle {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+    }
   </style>
 </head>
 <body>
@@ -946,6 +1131,9 @@
         <div class="brand-title">
           DiscordRPC
           <span class="pulse-pill"><span class="pulse-dot"></span> LIVE SYNC</span>
+          <span id="stoat-sync-pill" class="pulse-pill" style="display: none; background: rgba(155, 89, 182, 0.15); border-color: rgba(155, 89, 182, 0.35); color: #c39bd3;">
+            <span class="pulse-dot" style="background: #9b59b6; box-shadow: 0 0 10px #9b59b6;"></span> STOAT SYNC
+          </span>
         </div>
         <div class="brand-subtitle">Protutech Cloud • Multi-User System Hub</div>
       </div>
@@ -975,11 +1163,12 @@
 
       <button class="btn" onclick="fetchStats()">↻ Refresh</button>
       <button class="btn" id="auto-btn" onclick="toggleAuto()">Auto: 3s</button>
+      <button class="btn" id="btn-add-widget" onclick="onAddWidgetClick()" style="border-color: var(--accent); background: rgba(88, 101, 242, 0.15); color: #b5c2f8;">➕ Add Widget</button>
 
       <!-- Main Host Controls (Only displayed when authenticated as host) -->
       <div id="host-controls" style="display: none; align-items: center; gap: 8px;">
         <span class="host-pill">👑 MAIN HOST</span>
-        <button class="btn host-btn" onclick="openHostModal()">⚙️ Manage Trackers &amp; Timing</button>
+        <button class="btn host-btn" onclick="openHostModal()">⚙️ Settings &amp; Widgets</button>
       </div>
     </div>
   </header>
@@ -1030,10 +1219,10 @@
 
 <!-- Main Host Tracker & Timing Manager Modal -->
 <div class="modal-overlay" id="host-modal" onclick="closeHostModalOnBg(event)">
-  <div class="modal-content" style="max-width: 780px;">
+  <div class="modal-content" style="max-width: 840px;">
     <div class="modal-header">
       <div style="display: flex; align-items: center; gap: 10px;">
-        <div class="modal-title">⚙️ Tracker &amp; Timing Manager</div>
+        <div class="modal-title">⚙️ Widgets, Trackers &amp; Timing</div>
         <span class="host-pill" style="font-size: 0.68rem; padding: 3px 8px;">HOST CONTROL</span>
       </div>
       <button class="modal-close-btn" onclick="closeHostModal()">✕</button>
@@ -1041,15 +1230,339 @@
 
     <!-- Modal Tabs -->
     <div class="host-tabs">
-      <button class="host-tab-btn active" id="tab-btn-timing" onclick="switchHostTab('timing')">⏱️ Timing &amp; Rotation</button>
-      <button class="host-tab-btn" id="tab-btn-builtin" onclick="switchHostTab('builtin')">🔌 Built-in Trackers</button>
-      <button class="host-tab-btn" id="tab-btn-custom-add" onclick="switchHostTab('custom-add')">➕ Add Tracker</button>
-      <button class="host-tab-btn" id="tab-btn-custom-list" onclick="switchHostTab('custom-list')">📋 Custom Trackers (<span id="custom-count-badge">0</span>)</button>
+      <button class="host-tab-btn active" id="tab-btn-catalog" onclick="switchHostTab('catalog')">🌟 Add Widget / Presets</button>
+      <button class="host-tab-btn" id="tab-btn-games" onclick="switchHostTab('games')">🎮 Game Controls</button>
+      <button class="host-tab-btn" id="tab-btn-timing" onclick="switchHostTab('timing')">⏱️ Timing &amp; Rotation</button>
+      <button class="host-tab-btn" id="tab-btn-custom-add" onclick="switchHostTab('custom-add')">🛠️ Custom HTTP Monitor</button>
+      <button class="host-tab-btn" id="tab-btn-custom-list" onclick="switchHostTab('custom-list')">📋 All Trackers (<span id="custom-count-badge">0</span>)</button>
       <button class="host-tab-btn" id="tab-btn-security" onclick="switchHostTab('security')">🔑 Host Key</button>
     </div>
 
-    <!-- Tab 1: Timing & Rotation -->
-    <div class="host-tab-pane active" id="pane-timing">
+    <!-- Tab 1: Widget Catalog / Presets -->
+    <div class="host-tab-pane active" id="pane-catalog">
+      <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 12px;">
+        Toggle and configure your active Discord RPC widgets. Changes take effect on the next rotation cycle.
+      </p>
+
+      <div class="widget-catalog-grid">
+        <!-- 1. Minecraft Dedicated Server -->
+        <div class="widget-catalog-card">
+          <div class="widget-card-top">
+            <div class="widget-card-title-row">
+              <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/minecraft.png" class="widget-card-icon">
+              <div>
+                <div class="widget-card-name">Minecraft Server Monitor</div>
+                <div class="widget-card-desc">Dedicated server status, players online &amp; MOTD</div>
+              </div>
+            </div>
+            <label style="cursor: pointer;">
+              <input type="checkbox" id="chk-widget-mc-srv">
+            </label>
+          </div>
+          <div class="widget-card-fields">
+            <div class="form-row">
+              <div class="form-group" style="margin-bottom:0;">
+                <label style="font-size:0.75rem;">Server Address</label>
+                <input type="text" id="input-mc-srv-addr" class="form-input" style="padding:6px 8px; font-size:0.8rem;" value="minecraft.protutech.vip">
+              </div>
+              <div class="form-group" style="margin-bottom:0;">
+                <label style="font-size:0.75rem;">Port</label>
+                <input type="number" id="input-mc-srv-port" class="form-input" style="padding:6px 8px; font-size:0.8rem;" value="25565">
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="font-size:0.75rem;">Display Label</label>
+              <input type="text" id="input-mc-srv-label" class="form-input" style="padding:6px 8px; font-size:0.8rem;" value="Protutech Server">
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px;">
+              <button type="button" class="widget-test-btn" onclick="testMinecraftServer()">🔍 Ping Server</button>
+              <div id="test-mc-srv-res" class="test-result-box"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Crypto & Stocks Market Watch -->
+        <div class="widget-catalog-card">
+          <div class="widget-card-top">
+            <div class="widget-card-title-row">
+              <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/tradingview.png" class="widget-card-icon" onerror="this.src='https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/dvd.png'">
+              <div>
+                <div class="widget-card-name">Crypto &amp; Stocks Watch</div>
+                <div class="widget-card-desc">Yahoo Finance real-time prices &amp; 24h change</div>
+              </div>
+            </div>
+            <label style="cursor: pointer;">
+              <input type="checkbox" id="chk-widget-market">
+            </label>
+          </div>
+          <div class="widget-card-fields">
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="font-size:0.75rem;">Cryptos (Comma separated)</label>
+              <input type="text" id="input-market-crypto" class="form-input" style="padding:6px 8px; font-size:0.8rem;" value="BTC, ETH, SOL">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="font-size:0.75rem;">Stocks (Comma separated)</label>
+              <input type="text" id="input-market-stocks" class="form-input" style="padding:6px 8px; font-size:0.8rem;" value="NVDA, AAPL, MSFT, SPY">
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="margin-bottom:0;">
+                <label style="font-size:0.75rem;">Cache (Minutes)</label>
+                <input type="number" id="input-market-cache" class="form-input" style="padding:6px 8px; font-size:0.8rem;" value="5" min="1" max="60">
+              </div>
+              <div style="display: flex; align-items: flex-end;">
+                <button type="button" class="widget-test-btn" style="width:100%; justify-content:center;" onclick="testMarketQuotes()">📈 Preview Quotes</button>
+              </div>
+            </div>
+            <div id="test-market-res" class="test-result-box"></div>
+          </div>
+        </div>
+
+        <!-- 3. Stoat Chat Profile Sync -->
+        <div class="widget-catalog-card">
+          <div class="widget-card-top">
+            <div class="widget-card-title-row">
+              <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/revolt.png" class="widget-card-icon" onerror="this.src='https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png'">
+              <div>
+                <div class="widget-card-name">Stoat Chat Profile Sync</div>
+                <div class="widget-card-desc">Sync RPC status to stoat.chat account</div>
+              </div>
+            </div>
+            <label style="cursor: pointer;">
+              <input type="checkbox" id="chk-widget-stoat">
+            </label>
+          </div>
+          <div class="widget-card-fields">
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="font-size:0.75rem;">Stoat API URL</label>
+              <input type="url" id="input-stoat-url" class="form-input" style="padding:6px 8px; font-size:0.8rem;" value="https://api.stoat.chat">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="font-size:0.75rem;">Session / Bot Token</label>
+              <input type="password" id="input-stoat-token" class="form-input" style="padding:6px 8px; font-size:0.8rem;" placeholder="User token or Bot token">
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="margin-bottom:0;">
+                <label style="font-size:0.75rem;">Token Type</label>
+                <select id="select-stoat-token-type" class="form-select" style="padding:6px 8px; font-size:0.8rem;">
+                  <option value="user">User Session</option>
+                  <option value="bot">Bot Token</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:0;">
+                <label style="font-size:0.75rem;">Presence</label>
+                <select id="select-stoat-presence" class="form-select" style="padding:6px 8px; font-size:0.8rem;">
+                  <option value="Online">Online</option>
+                  <option value="Idle">Idle</option>
+                  <option value="Focus">Focus / DND</option>
+                  <option value="Invisible">Invisible</option>
+                </select>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px;">
+              <button type="button" class="widget-test-btn" onclick="testStoatConnection()">💬 Check Status</button>
+              <div id="test-stoat-res" class="test-result-box"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Active Games Hub Screen -->
+        <div class="widget-catalog-card">
+          <div class="widget-card-top">
+            <div class="widget-card-title-row">
+              <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/steam.png" class="widget-card-icon">
+              <div>
+                <div class="widget-card-name">Active Games Hub Widget</div>
+                <div class="widget-card-desc">Dynamic multi-game hub (Roblox, Minecraft, etc.)</div>
+              </div>
+            </div>
+            <label style="cursor: pointer;">
+              <input type="checkbox" id="chk-widget-games-hub">
+            </label>
+          </div>
+          <div class="widget-card-fields">
+            <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px;">
+              Shows running game count and dynamic party size [len(games), max(4)]. Individual game screens will also rotate.
+            </p>
+            <button type="button" class="btn" style="padding: 5px 12px; font-size: 0.75rem; align-self: flex-start;" onclick="switchHostTab('games')">🎮 Manage Running &amp; Muted Games →</button>
+          </div>
+        </div>
+
+        <!-- 5. Steam Profile & Stats -->
+        <div class="widget-catalog-card">
+          <div class="widget-card-top">
+            <div class="widget-card-title-row">
+              <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/steam.png" class="widget-card-icon">
+              <div>
+                <div class="widget-card-name">Steam Profile &amp; Stats</div>
+                <div class="widget-card-desc">Level 100 • 3,558 Achs • 99 Badges • 35 Perfect</div>
+              </div>
+            </div>
+            <label style="cursor: pointer;">
+              <input type="checkbox" id="chk-widget-steam">
+            </label>
+          </div>
+          <div class="widget-card-fields">
+            <div class="chips-group" style="margin-top: 0;">
+              <span class="chip green">🏆 3,558 Achs</span>
+              <span class="chip highlight">🎖️ 99 Badges</span>
+              <span class="chip">⭐ Lvl 100</span>
+              <span class="chip">👑 35 Perfect</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 6. Minecraft Modpack Client -->
+        <div class="widget-catalog-card">
+          <div class="widget-card-top">
+            <div class="widget-card-title-row">
+              <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/minecraft.png" class="widget-card-icon">
+              <div>
+                <div class="widget-card-name">Minecraft Modpack Client</div>
+                <div class="widget-card-desc">Detects All the Mods, CurseForge &amp; vanilla PC</div>
+              </div>
+            </div>
+            <label style="cursor: pointer;">
+              <input type="checkbox" id="chk-widget-mc-client">
+            </label>
+          </div>
+          <div class="widget-card-fields">
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.78rem; cursor: pointer;">
+              <input type="checkbox" id="chk-widget-mc-only">
+              <span>Only broadcast when Minecraft is actively running</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- 7. Proxmox VE Overview -->
+        <div class="widget-catalog-card">
+          <div class="widget-card-top">
+            <div class="widget-card-title-row">
+              <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png" class="widget-card-icon">
+              <div>
+                <div class="widget-card-name">Proxmox VE Overview</div>
+                <div class="widget-card-desc">Hypervisor CPU, RAM, VMs/LXCs, Storage</div>
+              </div>
+            </div>
+            <label style="cursor: pointer;">
+              <input type="checkbox" id="chk-widget-proxmox">
+            </label>
+          </div>
+        </div>
+
+        <!-- 8. Crypto Miner (Kryptex) -->
+        <div class="widget-catalog-card">
+          <div class="widget-card-top">
+            <div class="widget-card-title-row">
+              <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/kryptex.png" class="widget-card-icon">
+              <div>
+                <div class="widget-card-name">Crypto Miner (Kryptex)</div>
+                <div class="widget-card-desc">Mining status, GPU &amp; CPU hashrates</div>
+              </div>
+            </div>
+            <label style="cursor: pointer;">
+              <input type="checkbox" id="chk-widget-kryptex">
+            </label>
+          </div>
+        </div>
+
+        <!-- 9. Network Speed & Latency -->
+        <div class="widget-catalog-card">
+          <div class="widget-card-top">
+            <div class="widget-card-title-row">
+              <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/cloudflare.png" class="widget-card-icon">
+              <div>
+                <div class="widget-card-name">Network Speed &amp; Latency</div>
+                <div class="widget-card-desc">Bandwidth throughput &amp; Cloudflare ping</div>
+              </div>
+            </div>
+            <label style="cursor: pointer;">
+              <input type="checkbox" id="chk-widget-speed">
+            </label>
+          </div>
+        </div>
+
+        <!-- 10. GitHub Repositories -->
+        <div class="widget-catalog-card">
+          <div class="widget-card-top">
+            <div class="widget-card-title-row">
+              <img src="https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/github_white.png" class="widget-card-icon">
+              <div>
+                <div class="widget-card-name">GitHub Repositories</div>
+                <div class="widget-card-desc">Public repository count &amp; stats</div>
+              </div>
+            </div>
+            <label style="cursor: pointer;">
+              <input type="checkbox" id="chk-widget-github">
+            </label>
+          </div>
+        </div>
+
+        <!-- 11. Free PC Games Promo -->
+        <div class="widget-catalog-card">
+          <div class="widget-card-top">
+            <div class="widget-card-title-row">
+              <img src="https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/dvd.png" class="widget-card-icon">
+              <div>
+                <div class="widget-card-name">Free PC Games Promo</div>
+                <div class="widget-card-desc">GamerPower &amp; Epic giveaways with claim links</div>
+              </div>
+            </div>
+            <label style="cursor: pointer;">
+              <input type="checkbox" id="chk-widget-freegames">
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <button type="button" class="btn-save" onclick="saveWidgetCatalogSettings()" style="margin-top: 18px;">💾 Save All Widget Settings</button>
+    </div>
+
+    <!-- Tab 2: Game Controls -->
+    <div class="host-tab-pane" id="pane-games">
+      <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 12px;">
+        Control which games display on your Discord RPC. Running games are detected automatically; toggle them on/off or add custom .exe titles.
+      </p>
+
+      <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--card-border); border-radius: 10px; padding: 14px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <div style="font-size: 0.95rem; font-weight: 700;">🟢 Detected Running Games on PC</div>
+          <button class="btn" style="padding: 4px 10px; font-size: 0.75rem;" onclick="loadGamesList()">↻ Refresh Games</button>
+        </div>
+        <div id="detected-games-list">
+          <div style="color: var(--text-muted); font-size: 0.8rem;">Loading running games...</div>
+        </div>
+      </div>
+
+      <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--card-border); border-radius: 10px; padding: 14px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <div style="font-size: 0.95rem; font-weight: 700;">🎮 Known &amp; Supported Games Library</div>
+          <input type="text" id="game-filter-input" placeholder="Filter games..." style="background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); border-radius: 6px; padding: 4px 10px; font-size: 0.78rem; color: var(--text); outline: none; width: 160px;" oninput="filterGamesList()">
+        </div>
+        <div id="known-games-list" style="max-height: 220px; overflow-y: auto; padding-right: 4px;">
+          <!-- Rendered via JS -->
+        </div>
+      </div>
+
+      <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--card-border); border-radius: 10px; padding: 14px;">
+        <div style="font-size: 0.95rem; font-weight: 700; margin-bottom: 10px;">➕ Add Custom Game Executable</div>
+        <form onsubmit="submitNewCustomGame(event)">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="new-game-name">Game Name *</label>
+              <input type="text" id="new-game-name" class="form-input" placeholder="e.g., Cyberpunk 2077, Palworld, Starfield" required>
+            </div>
+            <div class="form-group">
+              <label for="new-game-exe">Process Executable (.exe) *</label>
+              <input type="text" id="new-game-exe" class="form-input" placeholder="e.g., cyberpunk2077.exe, palworld.exe" required>
+            </div>
+          </div>
+          <button type="submit" class="btn-save" style="margin-top: 4px;">➕ Register Custom Game</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Tab 3: Timing & Rotation -->
+    <div class="host-tab-pane" id="pane-timing">
       <form onsubmit="saveTimingSettings(event)">
         <div class="form-row">
           <div class="form-group">
@@ -1068,9 +1581,12 @@
               <option value="rotate">🔄 Auto-Rotate All Active Screens</option>
               <option value="proxmox">🖥️ Lock to Proxmox VE</option>
               <option value="kryptex">⛏️ Lock to Crypto Miner</option>
-              <option value="minecraft">🧱 Lock to Minecraft</option>
+              <option value="minecraft">🧱 Lock to Minecraft Client</option>
+              <option value="minecraft_server">🌐 Lock to Minecraft Server</option>
+              <option value="market">📈 Lock to Crypto &amp; Stocks</option>
+              <option value="games_hub">🎮 Lock to Active Games Hub</option>
               <option value="speed">⚡ Lock to Network Speed</option>
-              <option value="steam">🎮 Lock to Steam Profile</option>
+              <option value="steam">🏆 Lock to Steam Profile</option>
               <option value="github">🐙 Lock to GitHub Repos</option>
               <option value="freegames">🎁 Lock to Free Games</option>
             </select>
@@ -1109,18 +1625,7 @@
       </form>
     </div>
 
-    <!-- Tab 2: Built-in Trackers -->
-    <div class="host-tab-pane" id="pane-builtin">
-      <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
-        Enable/disable trackers in Discord RPC rotation, or hide them from public visitors (only visible when authenticated as host).
-      </p>
-      <div id="builtin-trackers-list">
-        <!-- Rendered via JS -->
-      </div>
-      <button class="btn-save" onclick="saveBuiltinTrackers()">💾 Save Built-in Trackers Configuration</button>
-    </div>
-
-    <!-- Tab 3: Add Custom Tracker -->
+    <!-- Tab 4: Add Custom Tracker -->
     <div class="host-tab-pane" id="pane-custom-add">
       <form onsubmit="submitNewCustomTracker(event)">
         <div class="form-row">
@@ -1183,14 +1688,14 @@
       </form>
     </div>
 
-    <!-- Tab 4: Custom Trackers List -->
+    <!-- Tab 5: Custom Trackers List -->
     <div class="host-tab-pane" id="pane-custom-list">
       <div id="custom-trackers-manage-list">
         <!-- Rendered via JS -->
       </div>
     </div>
 
-    <!-- Tab 5: Host Key Settings -->
+    <!-- Tab 6: Host Key Settings -->
     <div class="host-tab-pane" id="pane-security">
       <form onsubmit="saveHostKey(event)">
         <div class="form-group">
@@ -1215,7 +1720,7 @@
       <div class="form-group">
         <label for="input-host-key">Enter Host Key</label>
         <input type="password" id="input-host-key" class="form-input" placeholder="Your secret host key" required autofocus>
-        <span class="label-desc">Grants administrative access to tracker rotation and timing controls.</span>
+        <span class="label-desc" id="login-prompt-desc">Grants administrative access to widget management, game controls, and timing settings.</span>
       </div>
       <div id="login-error-msg" style="display: none; color: #ff7b72; font-size: 0.8rem; margin-bottom: 10px;"></div>
       <button type="submit" class="btn-save" style="margin-top: 4px;">Unlock Host Controls 🔓</button>
@@ -1409,11 +1914,29 @@
     }
   }
 
+  let pendingTabAfterLogin = null;
+
+  function onAddWidgetClick() {
+    if (!isMainHost) {
+      pendingTabAfterLogin = 'catalog';
+      openHostLoginModal("Host login required to add or modify widgets.");
+    } else {
+      openHostModal('catalog');
+    }
+  }
+
   function renderDashboard(data) {
     const screens = data.screens || [];
     const currentName = data.current_screen_name || "";
     const activeIdx = data.screen_index !== undefined ? data.screen_index : 0;
     const userName = data.user_name || currentUserId || "User";
+
+    // Stoat Sync Indicator in Top Header
+    const stoatPill = document.getElementById('stoat-sync-pill');
+    if (stoatPill) {
+      const isStoatSyncing = !!(data.stoat_synced || (hostConfig && hostConfig.enable_stoat_sync));
+      stoatPill.style.display = isStoatSyncing ? 'inline-flex' : 'none';
+    }
 
     // Update Discord live banner
     if (screens.length > 0) {
@@ -1491,10 +2014,88 @@
           <div class="chips-group" style="margin-top: 8px;">
             <span class="chip green">🏆 ${st.achievements || 0} Achievements</span>
             <span class="chip highlight">🎖️ ${st.badges || 0} Badges</span>
-            <span class="chip">⭐ Level ${st.level || 0}</span>
-            <span class="chip">🎮 ${st.games || 0} Games</span>
+            <span class="chip" style="background: rgba(240, 178, 50, 0.15); border-color: rgba(240, 178, 50, 0.4); color: #f0b232;">⭐ Level ${st.level || 0}</span>
             ${st.perfect_games && st.perfect_games !== '0' ? `<span class="chip highlight">👑 ${st.perfect_games} Perfect</span>` : ''}
+            <span class="chip">🎮 ${st.games || 0} Games</span>
             <span class="chip">🎒 ${st.items || 0} Items</span>
+            ${st.hours_played ? `<span class="chip">⏱️ ${st.hours_played} hrs Played</span>` : ''}
+            <span class="chip ${st.status === 'Online' ? 'green' : ''}">● ${st.status || 'Online'}</span>
+          </div>
+        `;
+      } else if ((s.name === "Minecraft Server" || s.server_data) && s.server_data) {
+        const srv = s.server_data;
+        const isOnline = !!srv.online;
+        extraContent = `
+          <div style="margin-top: 8px;">
+            <div class="chips-group">
+              <span class="chip ${isOnline ? 'green' : ''}">${isOnline ? '● Server Online' : '○ Server Offline'}</span>
+              <span class="chip highlight">👥 ${srv.players_online || 0}/${srv.players_max || 20} Players</span>
+              ${srv.version ? `<span class="chip">🧱 ${srv.version}</span>` : ''}
+              ${srv.address ? `<span class="chip">🌐 ${srv.address}${srv.port ? ':' + srv.port : ''}</span>` : ''}
+            </div>
+            ${srv.motd ? `<div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 8px; font-style: italic; background: rgba(0,0,0,0.25); padding: 6px 10px; border-radius: 6px; border-left: 3px solid var(--accent);">${srv.motd}</div>` : ''}
+          </div>
+        `;
+      } else if ((s.name === "Crypto & Stocks" || s.market_data) && s.market_data) {
+        const m = s.market_data;
+        const cryptos = Array.isArray(m.crypto) ? m.crypto : Object.values(m.crypto || {});
+        const stocks = Array.isArray(m.stocks) ? m.stocks : Object.values(m.stocks || {});
+
+        const renderTickerPill = (item) => {
+          const isPos = (item.change_pct || 0) >= 0;
+          const colorClass = isPos ? 'market-up' : 'market-down';
+          const sign = isPos ? '+' : '';
+          const priceStr = (item.price >= 1000)
+            ? '$' + Number(item.price).toLocaleString('en-US', {maximumFractionDigits: 0})
+            : (item.price >= 1 ? '$' + Number(item.price).toFixed(2) : '$' + Number(item.price).toFixed(4));
+          const changeStr = (item.change_pct !== undefined && item.change_pct !== null)
+            ? `${sign}${Number(item.change_pct).toFixed(2)}%`
+            : '';
+          return `
+            <div class="market-pill ${colorClass}">
+              <span class="ticker-sym">${item.symbol}</span>
+              <span class="ticker-price">${priceStr}</span>
+              ${changeStr ? `<span class="ticker-change">${changeStr}</span>` : ''}
+            </div>
+          `;
+        };
+
+        extraContent = `
+          <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+            ${cryptos.length > 0 ? `
+              <div>
+                <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Top Cryptos</div>
+                <div class="market-ticker-row">${cryptos.map(renderTickerPill).join('')}</div>
+              </div>
+            ` : ''}
+            ${stocks.length > 0 ? `
+              <div>
+                <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Recommended Stocks</div>
+                <div class="market-ticker-row">${stocks.map(renderTickerPill).join('')}</div>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      } else if ((s.name === "Active Games Hub" || s.name === "Active Games" || s.games_hub) && (s.games_hub || s.active_games)) {
+        const gh = s.games_hub;
+        const games = gh.games || [];
+        extraContent = `
+          <div style="margin-top: 8px;">
+            <div class="chips-group">
+              <span class="chip green">● ${gh.active_count || games.length} Games Running</span>
+              <span class="chip highlight">🎮 Party: ${gh.active_count || games.length} Active</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
+              ${games.map(g => `
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: 6px; font-size: 0.8rem; border: 1px solid var(--card-border);">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span>🎮</span>
+                    <span style="font-weight: 600;">${g.name}</span>
+                  </div>
+                  <span class="chip highlight" style="font-size: 0.7rem; padding: 2px 6px;">${g.detail || g.category || 'Running'}</span>
+                </div>
+              `).join('')}
+            </div>
           </div>
         `;
       } else if (s.name === "GitHub Repositories" && s.github_stats) {
@@ -1565,7 +2166,12 @@
         }
       }
 
-      const subtitle = s.name === "Free Games" ? "GamerPower & Epic Tracker" : (s.name === "Minecraft" ? "Minecraft & Modpack Tracker" : (s.screen_type || 'System Screen'));
+      let subtitle = s.screen_type || 'System Screen';
+      if (s.name === "Free Games") subtitle = "GamerPower & Epic Tracker";
+      else if (s.name === "Minecraft") subtitle = "Minecraft & Modpack Tracker";
+      else if (s.name === "Minecraft Server") subtitle = "Dedicated Server";
+      else if (s.name === "Crypto & Stocks") subtitle = "Yahoo Finance Watch";
+      else if (s.name === "Active Games Hub") subtitle = "Multi-Game Session Hub";
 
       let hostControlsHtml = '';
       if (isMainHost) {
@@ -1646,19 +2252,22 @@
     { key: "enable_game_activity", name: "Game Activity", label: "Active PC Game Process", desc: "Direct Discord game detection", icon: "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/steam.png" }
   ];
 
-  async function openHostModal() {
+  let cachedGamesData = null;
+
+  async function openHostModal(tab = 'catalog') {
     try {
       const res = await fetch('/api/config', { headers: getAuthHeaders() });
       if (!res.ok) {
-        if (res.status === 403) {
-          alert("Host authentication required. Please enter your host key.");
-          openHostLoginModal();
+        if (res.status === 403 || res.status === 401) {
+          pendingTabAfterLogin = tab;
+          openHostLoginModal("Host authentication required to manage widgets and settings.");
           return;
         }
         throw new Error("HTTP " + res.status);
       }
       hostConfig = await res.json();
       populateHostModal(hostConfig);
+      switchHostTab(tab);
       document.getElementById('host-modal').classList.add('show');
     } catch (e) {
       console.error("Failed to load host config:", e);
@@ -1684,6 +2293,10 @@
     const pane = document.getElementById(`pane-${tab}`);
     if (btn) btn.classList.add('active');
     if (pane) pane.classList.add('active');
+
+    if (tab === 'games') {
+      loadGamesList();
+    }
   }
 
   function setCustomIconPreset(type) {
@@ -1702,7 +2315,9 @@
     }
   }
 
-  function openHostLoginModal() {
+  function openHostLoginModal(promptMsg) {
+    const desc = document.getElementById('login-prompt-desc');
+    if (desc && promptMsg) desc.textContent = promptMsg;
     document.getElementById('login-error-msg').style.display = 'none';
     document.getElementById('input-host-key').value = '';
     document.getElementById('host-login-modal').classList.add('show');
@@ -1725,20 +2340,24 @@
     if (!key) return;
 
     try {
-      const res = await fetch('/api/auth/verify', {
-        headers: { 'X-Host-Key': key }
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host_key: key })
       });
       const data = await res.json();
-      if (data.is_host) {
+      if (res.ok && data.is_host) {
         localStorage.setItem('discordrpc_host_key', key);
         isMainHost = true;
         updateHostUI();
         closeHostLoginModal();
-        fetchStats();
-        openHostModal();
+        await fetchStats();
+        const tabToOpen = pendingTabAfterLogin || 'catalog';
+        pendingTabAfterLogin = null;
+        openHostModal(tabToOpen);
       } else {
         const err = document.getElementById('login-error-msg');
-        err.textContent = "Invalid host key. Please try again.";
+        err.textContent = data.error || "Invalid host key. Please try again.";
         err.style.display = 'block';
       }
     } catch (err) {
@@ -1781,69 +2400,329 @@
   }
 
   function populateHostModal(cfg) {
-    // 1. Timing Tab
-    document.getElementById('cfg-interval').value = cfg.update_interval_seconds || 6;
-    document.getElementById('cfg-active-screen').value = cfg.active_screen || 'rotate';
-    document.getElementById('cfg-speedtest-interval').value = cfg.speedtest_interval_minutes || 30;
-    document.getElementById('cfg-steam-cache').value = cfg.steam_cache_minutes || 15;
-    document.getElementById('cfg-github-cache').value = cfg.github_cache_minutes || 30;
-    document.getElementById('cfg-freegames-cache').value = cfg.free_games_cache_minutes || 60;
+    // 1. Catalog Tab
+    // Minecraft Dedicated Server
+    const chkMcSrv = document.getElementById('chk-widget-mc-srv');
+    if (chkMcSrv) chkMcSrv.checked = cfg.enable_minecraft_server_screen !== false;
+    const inputMcAddr = document.getElementById('input-mc-srv-addr');
+    if (inputMcAddr) inputMcAddr.value = cfg.minecraft_server_address || "minecraft.protutech.vip";
+    const inputMcPort = document.getElementById('input-mc-srv-port');
+    if (inputMcPort) inputMcPort.value = cfg.minecraft_server_port || 25565;
+    const inputMcLabel = document.getElementById('input-mc-srv-label');
+    if (inputMcLabel) inputMcLabel.value = cfg.minecraft_server_label || "Protutech Server";
 
-    // 2. Builtin Tab
-    renderBuiltinTrackersList(cfg);
+    // Crypto & Stocks
+    const chkMarket = document.getElementById('chk-widget-market');
+    if (chkMarket) chkMarket.checked = cfg.enable_market_screen !== false;
+    const inputCrypto = document.getElementById('input-market-crypto');
+    if (inputCrypto) inputCrypto.value = Array.isArray(cfg.market_crypto_list) ? cfg.market_crypto_list.join(', ') : (cfg.market_crypto_list || "BTC, ETH, SOL");
+    const inputStocks = document.getElementById('input-market-stocks');
+    if (inputStocks) inputStocks.value = Array.isArray(cfg.market_stocks_list) ? cfg.market_stocks_list.join(', ') : (cfg.market_stocks_list || "NVDA, AAPL, MSFT, SPY");
+    const inputMarketCache = document.getElementById('input-market-cache');
+    if (inputMarketCache) inputMarketCache.value = cfg.market_cache_minutes || 5;
+
+    // Stoat Chat
+    const chkStoat = document.getElementById('chk-widget-stoat');
+    if (chkStoat) chkStoat.checked = !!cfg.enable_stoat_sync;
+    const inputStoatUrl = document.getElementById('input-stoat-url');
+    if (inputStoatUrl) inputStoatUrl.value = cfg.stoat_api_url || "https://api.stoat.chat";
+    const inputStoatToken = document.getElementById('input-stoat-token');
+    if (inputStoatToken) inputStoatToken.value = cfg.stoat_token || "";
+    const selectStoatType = document.getElementById('select-stoat-token-type');
+    if (selectStoatType) selectStoatType.value = cfg.stoat_token_type || "user";
+    const selectStoatPres = document.getElementById('select-stoat-presence');
+    if (selectStoatPres) selectStoatPres.value = cfg.stoat_presence || "Online";
+
+    // Other Widgets
+    const setChk = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.checked = val;
+    };
+    setChk('chk-widget-games-hub', cfg.enable_active_games_hub !== false);
+    setChk('chk-widget-steam', cfg.enable_steam_screen !== false);
+    setChk('chk-widget-mc-client', cfg.enable_minecraft_screen !== false);
+    setChk('chk-widget-mc-only', !!cfg.minecraft_only_when_playing);
+    setChk('chk-widget-proxmox', cfg.enable_proxmox_screen !== false);
+    setChk('chk-widget-kryptex', cfg.enable_kryptex_screen !== false);
+    setChk('chk-widget-speed', cfg.enable_speed_screen !== false);
+    setChk('chk-widget-github', cfg.enable_github_screen !== false);
+    setChk('chk-widget-freegames', cfg.enable_free_games_screen !== false);
+
+    // 2. Timing Tab
+    const setVal = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.value = val;
+    };
+    setVal('cfg-interval', cfg.update_interval_seconds || 6);
+    setVal('cfg-active-screen', cfg.active_screen || 'rotate');
+    setVal('cfg-speedtest-interval', cfg.speedtest_interval_minutes || 30);
+    setVal('cfg-steam-cache', cfg.steam_cache_minutes || 15);
+    setVal('cfg-github-cache', cfg.github_cache_minutes || 30);
+    setVal('cfg-freegames-cache', cfg.free_games_cache_minutes || 60);
 
     // 3. Custom Trackers List
     renderCustomTrackersList(cfg);
 
     // 4. Security Tab
     if (cfg.host_key) {
-      document.getElementById('cfg-host-key').value = cfg.host_key;
+      setVal('cfg-host-key', cfg.host_key);
     }
   }
 
-  function renderBuiltinTrackersList(cfg) {
-    const container = document.getElementById('builtin-trackers-list');
-    container.innerHTML = '';
-    const hiddenSet = new Set(cfg.hidden_screens || []);
+  async function saveWidgetCatalogSettings() {
+    const patch = {
+      enable_minecraft_server_screen: document.getElementById('chk-widget-mc-srv').checked,
+      minecraft_server_address: document.getElementById('input-mc-srv-addr').value.trim() || "minecraft.protutech.vip",
+      minecraft_server_port: parseInt(document.getElementById('input-mc-srv-port').value, 10) || 25565,
+      minecraft_server_label: document.getElementById('input-mc-srv-label').value.trim() || "Protutech Server",
 
-    BUILTIN_DEFINITIONS.forEach(def => {
-      const isEnabled = cfg[def.key] !== false;
-      const isHidden = hiddenSet.has(def.name);
+      enable_market_screen: document.getElementById('chk-widget-market').checked,
+      market_crypto_list: document.getElementById('input-market-crypto').value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean),
+      market_stocks_list: document.getElementById('input-market-stocks').value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean),
+      market_cache_minutes: parseInt(document.getElementById('input-market-cache').value, 10) || 5,
 
-      let subOptionHtml = '';
-      if (def.key === 'enable_minecraft_screen') {
-        const mcOnly = !!cfg.minecraft_only_when_playing;
-        subOptionHtml = `
-          <label style="display: flex; align-items: center; gap: 5px; font-size: 0.74rem; cursor: pointer; color: var(--text-muted); margin-top: 4px;">
-            <input type="checkbox" id="chk-builtin-mc-only" ${mcOnly ? 'checked' : ''}>
-            <span>Only broadcast when playing</span>
-          </label>
-        `;
+      enable_stoat_sync: document.getElementById('chk-widget-stoat').checked,
+      stoat_api_url: document.getElementById('input-stoat-url').value.trim() || "https://api.stoat.chat",
+      stoat_token: document.getElementById('input-stoat-token').value.trim(),
+      stoat_token_type: document.getElementById('select-stoat-token-type').value,
+      stoat_presence: document.getElementById('select-stoat-presence').value,
+
+      enable_active_games_hub: document.getElementById('chk-widget-games-hub').checked,
+      enable_steam_screen: document.getElementById('chk-widget-steam').checked,
+      enable_minecraft_screen: document.getElementById('chk-widget-mc-client').checked,
+      minecraft_only_when_playing: document.getElementById('chk-widget-mc-only').checked,
+      enable_proxmox_screen: document.getElementById('chk-widget-proxmox').checked,
+      enable_kryptex_screen: document.getElementById('chk-widget-kryptex').checked,
+      enable_speed_screen: document.getElementById('chk-widget-speed').checked,
+      enable_github_screen: document.getElementById('chk-widget-github').checked,
+      enable_free_games_screen: document.getElementById('chk-widget-freegames').checked
+    };
+
+    const ok = await saveConfigPatch(patch);
+    if (ok) {
+      alert("✅ All widget and catalog settings saved successfully!");
+    }
+  }
+
+  async function testMinecraftServer() {
+    const resBox = document.getElementById('test-mc-srv-res');
+    resBox.className = 'test-result-box';
+    resBox.textContent = 'Pinging server...';
+    try {
+      const res = await fetch('/api/minecraft/server');
+      const data = await res.json();
+      if (data.online) {
+        resBox.className = 'test-result-box success';
+        resBox.textContent = `Online: ${data.players_online}/${data.players_max} players • ${data.motd || data.version || 'OK'}`;
+      } else {
+        resBox.className = 'test-result-box error';
+        resBox.textContent = `Server Offline: ${data.motd || 'Could not connect'}`;
       }
+    } catch (e) {
+      resBox.className = 'test-result-box error';
+      resBox.textContent = 'Error: ' + e.message;
+    }
+  }
 
-      const row = document.createElement('div');
-      row.className = 'tracker-card-manage';
-      row.innerHTML = `
-        <div class="tracker-manage-left">
-          <img src="${def.icon}" style="width: 32px; height: 32px; border-radius: 6px; object-fit: cover;">
-          <div>
-            <div class="tracker-manage-title">${def.label}</div>
-            <div class="tracker-manage-subtitle">${def.desc}</div>
-            ${subOptionHtml}
-          </div>
-        </div>
-        <div class="tracker-manage-controls">
-          <label style="display: flex; align-items: center; gap: 6px; font-size: 0.82rem; cursor: pointer;">
-            <input type="checkbox" id="chk-builtin-${def.key}" ${isEnabled ? 'checked' : ''}>
-            <span>RPC Enabled</span>
-          </label>
-          <button type="button" class="card-hide-btn ${isHidden ? 'hidden' : 'public'}" style="position: static;" onclick="toggleScreenVisibility('${def.name}')">
-            ${isHidden ? '🚫 Hidden (Host)' : '👁️ Public'}
-          </button>
+  async function testMarketQuotes() {
+    const resBox = document.getElementById('test-market-res');
+    resBox.className = 'test-result-box';
+    resBox.textContent = 'Fetching Yahoo Finance quotes...';
+    try {
+      const res = await fetch('/api/market');
+      const data = await res.json();
+      const cryptos = data.crypto || [];
+      const stocks = data.stocks || [];
+      const parts = [];
+      cryptos.forEach(c => parts.push(`${c.symbol}: $${Number(c.price).toLocaleString()} (${c.change_pct >= 0 ? '+' : ''}${c.change_pct.toFixed(1)}%)`));
+      stocks.forEach(s => parts.push(`${s.symbol}: $${Number(s.price).toFixed(2)} (${s.change_pct >= 0 ? '+' : ''}${s.change_pct.toFixed(1)}%)`));
+      resBox.className = 'test-result-box success';
+      resBox.textContent = parts.length > 0 ? parts.join(' | ') : 'No quote data returned';
+    } catch (e) {
+      resBox.className = 'test-result-box error';
+      resBox.textContent = 'Error: ' + e.message;
+    }
+  }
+
+  async function testStoatConnection() {
+    const resBox = document.getElementById('test-stoat-res');
+    resBox.className = 'test-result-box';
+    const token = document.getElementById('input-stoat-token').value.trim();
+    const url = document.getElementById('input-stoat-url').value.trim() || 'https://api.stoat.chat';
+    if (!token) {
+      resBox.className = 'test-result-box error';
+      resBox.textContent = 'Enter a token first to test';
+      return;
+    }
+    resBox.textContent = 'Verifying with Stoat API...';
+    try {
+      const type = document.getElementById('select-stoat-token-type').value;
+      const headers = { 'Content-Type': 'application/json' };
+      if (type === 'bot') headers['x-bot-token'] = token;
+      else headers['x-session-token'] = token;
+
+      const res = await fetch(url + '/users/@me', { headers });
+      if (res.ok) {
+        const u = await res.json();
+        resBox.className = 'test-result-box success';
+        resBox.textContent = `Connected as ${u.username || 'User'}!`;
+      } else {
+        resBox.className = 'test-result-box error';
+        resBox.textContent = `Stoat returned HTTP ${res.status}`;
+      }
+    } catch (e) {
+      resBox.className = 'test-result-box error';
+      resBox.textContent = `Network error: ${e.message}`;
+    }
+  }
+
+  async function loadGamesList() {
+    try {
+      const res = await fetch('/api/games');
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      cachedGamesData = data;
+      renderGamesTab(data);
+    } catch (e) {
+      console.error("Failed to load games:", e);
+      document.getElementById('detected-games-list').innerHTML = `<div style="color: #ff7b72; font-size: 0.8rem;">Failed to load games: ${e.message}</div>`;
+    }
+  }
+
+  function renderGamesTab(data) {
+    const detectedContainer = document.getElementById('detected-games-list');
+    const detected = data.detected || [];
+    const known = data.known || [];
+    const disabledList = (data.disabled_games || []).map(x => x.toLowerCase());
+
+    // 1. Detected Running Games
+    if (detected.length === 0) {
+      detectedContainer.innerHTML = `
+        <div style="color: var(--text-muted); font-size: 0.8rem; padding: 6px 0;">
+          No running games detected on PC right now. (Start Roblox, Minecraft, Steam games, etc.)
         </div>
       `;
-      container.appendChild(row);
+    } else {
+      detectedContainer.innerHTML = detected.map(g => {
+        const slug = (g.slug || g.name || '').toLowerCase();
+        const isDisabled = disabledList.includes(slug) || disabledList.includes((g.name || '').toLowerCase());
+        return `
+          <div class="game-item-row">
+            <div class="game-item-left">
+              <span style="font-size: 1.2rem;">🎮</span>
+              <div>
+                <div class="game-item-name">${g.name}</div>
+                <div class="game-item-meta">${g.category || 'PC Game'} • Executable: <code>${g.exe || 'process'}</code></div>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="game-status-badge ${isDisabled ? 'badge-muted' : 'badge-active'}">
+                ${isDisabled ? '🚫 Muted on RPC' : '🟢 Broadcasting'}
+              </span>
+              <button class="btn" style="padding: 4px 10px; font-size: 0.75rem;" onclick="toggleGameRPC('${g.slug || g.name}', ${!isDisabled})">
+                ${isDisabled ? '🔊 Broadcast' : '🔇 Mute'}
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 2. Known Games Library
+    renderFilteredKnownGames(known, disabledList);
+  }
+
+  function renderFilteredKnownGames(knownList, disabledList) {
+    const container = document.getElementById('known-games-list');
+    const query = (document.getElementById('game-filter-input')?.value || '').toLowerCase().trim();
+
+    const filtered = knownList.filter(g => {
+      if (!query) return true;
+      return (g.name || '').toLowerCase().includes(query) || (g.exe || '').toLowerCase().includes(query);
     });
+
+    if (filtered.length === 0) {
+      container.innerHTML = `<div style="color: var(--text-muted); font-size: 0.8rem; padding: 10px; text-align: center;">No matching games found</div>`;
+      return;
+    }
+
+    container.innerHTML = filtered.map(g => {
+      const slug = (g.slug || g.name || '').toLowerCase();
+      const isDisabled = g.disabled || disabledList.includes(slug) || disabledList.includes((g.name || '').toLowerCase());
+      const isRunning = !!g.running;
+      return `
+        <div class="game-item-row">
+          <div class="game-item-left">
+            <span style="font-size: 1.1rem;">🕹️</span>
+            <div>
+              <div class="game-item-name">${g.name} ${g.custom ? '<span class="chip" style="font-size: 0.65rem; padding: 1px 5px;">Custom</span>' : ''}</div>
+              <div class="game-item-meta"><code>${g.exe}</code> ${isRunning ? '• <span style="color: #7ee787;">● Running</span>' : ''}</div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <button class="btn" style="padding: 4px 10px; font-size: 0.75rem; color: ${isDisabled ? '#8b949e' : '#7ee787'};" onclick="toggleGameRPC('${g.slug || g.name}', ${!isDisabled})">
+              ${isDisabled ? 'Enable RPC' : '✓ Enabled'}
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function filterGamesList() {
+    if (cachedGamesData) {
+      const disabledList = (cachedGamesData.disabled_games || []).map(x => x.toLowerCase());
+      renderFilteredKnownGames(cachedGamesData.known || [], disabledList);
+    }
+  }
+
+  async function toggleGameRPC(gameIdentifier, shouldDisable) {
+    try {
+      const res = await fetch('/api/games/toggle', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({ slug: gameIdentifier, disabled: shouldDisable })
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || ("HTTP " + res.status));
+      }
+      loadGamesList();
+      fetchStats();
+    } catch (e) {
+      alert("Failed to toggle game: " + e.message);
+    }
+  }
+
+  async function submitNewCustomGame(e) {
+    if (e) e.preventDefault();
+    const name = document.getElementById('new-game-name').value.trim();
+    const exe = document.getElementById('new-game-exe').value.trim();
+    if (!name || !exe) return;
+
+    try {
+      const res = await fetch('/api/games/add', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({ name: name, exe: exe })
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || ("HTTP " + res.status));
+      }
+      document.getElementById('new-game-name').value = '';
+      document.getElementById('new-game-exe').value = '';
+      loadGamesList();
+      alert(`Registered "${name}" (${exe}) successfully!`);
+    } catch (err) {
+      alert("Failed to add custom game: " + err.message);
+    }
   }
 
   function renderCustomTrackersList(cfg) {
@@ -1921,26 +2800,6 @@
     }
   }
 
-  async function saveBuiltinTrackers() {
-    const patch = {};
-    BUILTIN_DEFINITIONS.forEach(def => {
-      const el = document.getElementById(`chk-builtin-${def.key}`);
-      if (el) {
-        patch[def.key] = el.checked;
-      }
-    });
-
-    const mcOnlyEl = document.getElementById('chk-builtin-mc-only');
-    if (mcOnlyEl) {
-      patch.minecraft_only_when_playing = mcOnlyEl.checked;
-    }
-
-    const ok = await saveConfigPatch(patch);
-    if (ok) {
-      alert("Built-in trackers configuration saved!");
-    }
-  }
-
   async function submitNewCustomTracker(e) {
     if (e) e.preventDefault();
     const name = document.getElementById('new-ct-name').value.trim();
@@ -2015,9 +2874,9 @@
     const ok = await saveConfigPatch({ hidden_screens: hiddenScreens });
     if (ok) {
       if (document.getElementById('host-modal').classList.contains('show')) {
-        renderBuiltinTrackersList(hostConfig);
         renderCustomTrackersList(hostConfig);
       }
+      fetchStats();
     }
   }
 
