@@ -1848,6 +1848,13 @@ module.exports = native;
                 if "plugins" not in eq_data:
                     eq_data["plugins"] = {}
                 curse_entries = [
+                    {"id": "1272208350544924835", "name": "Star Technology", "type": 0},
+                    {"id": "1402418491272986635", "name": "Minecraft", "type": 0},
+                    {"id": "c:/users/andre/curseforge/minecraft/install/java/java-runtime-delta/bin/javaw.exe", "name": "Minecraft", "type": 0},
+                    {"id": "c:/users/andre/curseforge/minecraft/install/java/java-runtime-delta/bin/javaw.exe:Minecraft", "name": "Minecraft", "type": 0},
+                    {"id": "javaw.exe", "name": "Minecraft", "type": 0},
+                    {"id": "Minecraft", "name": "Minecraft", "type": 0},
+                    {"id": "Star Technology", "name": "Star Technology", "type": 0},
                     {"id": "c:/users/andre/appdata/local/programs/curseforge windows/curseforge.exe", "name": "CurseForge", "type": 0},
                     {"id": "c:/users/andre/appdata/local/programs/curseforge windows/curseforge.exe:CurseForge", "name": "CurseForge", "type": 0},
                     {"id": "CurseForge", "name": "CurseForge", "type": 0},
@@ -1871,7 +1878,7 @@ module.exports = native;
                     }
                     with open(equi_settings, "w", encoding="utf-8") as f:
                         json.dump(eq_data, f, indent=2)
-                    print("[INFO] Configured Equicord IgnoreActivities for CurseForge suppression", flush=True)
+                    print("[INFO] Configured Equicord IgnoreActivities for CurseForge and Minecraft suppression", flush=True)
     except Exception:
         pass
 
@@ -2121,10 +2128,11 @@ def detect_active_games(cfg, max_games=3, return_pids=False):
                         slug = re.sub(r'[^a-z0-9_]', '', g_name.lower().replace(" ", "_"))
                         add_game(g_name, slug, exe_name=ename, discord_icon=g_meta.get("icon"), pid=gpids[0], pids=gpids)
 
-        # Collect all CurseForge & Overwolf helper PIDs for active RPC clearing and suppression
+        # Collect all CurseForge, Overwolf & Minecraft Java helper PIDs for active RPC clearing and suppression
         BLOCKED_LAUNCHER_EXES = (
             "curseforge.exe", "curseforgewindows.exe", "curse.agent.host.exe",
-            "overwolf.exe", "overwolflauncher.exe", "overwolfbrowser.exe"
+            "overwolf.exe", "overwolflauncher.exe", "overwolfbrowser.exe",
+            "javaw.exe", "java.exe", "minecraft.exe", "minecraft.windows.exe"
         )
         for b_exe in BLOCKED_LAUNCHER_EXES:
             if b_exe in proc_pids:
@@ -2988,28 +2996,17 @@ def main():
             target_pid = os.getpid()
 
             if not cfg.get("enable_game_activity", True):
-                if current_screen.get("name") == "Minecraft":
-                    mc_info = current_screen.get("mc_status", {})
-                    if mc_info.get("online") and mc_info.get("pid") and is_pid_alive(mc_info["pid"]):
-                        target_pid = mc_info["pid"]
-                    else:
-                        target_pid = os.getpid()
-                else:
-                    # When gaming activity is disabled, run purely on Python's PID and suppress all games
-                    target_pid = os.getpid()
+                # When gaming activity is disabled, run purely on Python's PID and suppress all games
+                target_pid = os.getpid()
             else:
                 # If current screen is a specific game screen, bind to that specific game's PID
                 if current_screen.get("screen_type") == "game" and current_screen.get("game_info"):
                     g_pid = current_screen["game_info"].get("pid")
                     if g_pid and is_pid_alive(g_pid):
                         target_pid = g_pid
-                elif current_screen.get("name") == "Minecraft":
-                    mc_info = current_screen.get("mc_status", {})
-                    if mc_info.get("online") and mc_info.get("pid") and is_pid_alive(mc_info["pid"]):
-                        target_pid = mc_info["pid"]
                 elif detected_games:
                     chosen_pid = None
-                    for target_slug in ("minecraft", "roblox"):
+                    for target_slug in ("roblox",):
                         for g in detected_games:
                             if g.get("slug") == target_slug:
                                 for p in g.get("pids", [g.get("pid")]):
