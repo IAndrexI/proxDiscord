@@ -1819,8 +1819,59 @@ module.exports = native;
                     with open(idx_file, "w", encoding="utf-8") as f:
                         f.write(patch_code)
                     print(f"[INFO] Auto-patched Discord game detector: {idx_file}", flush=True)
+
+                # Ensure package.json points to index.js so the wrapper is loaded
+                pkg_file = os.path.join(os.path.dirname(idx_file), "package.json")
+                if os.path.exists(pkg_file):
+                    try:
+                        with open(pkg_file, "r", encoding="utf-8") as f:
+                            pkg = json.load(f)
+                        if pkg.get("main") != "index.js":
+                            pkg["main"] = "index.js"
+                            with open(pkg_file, "w", encoding="utf-8") as f:
+                                json.dump(pkg, f, indent=2)
+                    except Exception:
+                        pass
             except Exception:
                 pass
+    except Exception:
+        pass
+
+    # Ensure Equicord IgnoreActivities plugin has CurseForge blocked
+    try:
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            equi_settings = os.path.join(appdata, "Equicord", "settings", "settings.json")
+            if os.path.exists(equi_settings):
+                with open(equi_settings, "r", encoding="utf-8") as f:
+                    eq_data = json.load(f)
+                if "plugins" not in eq_data:
+                    eq_data["plugins"] = {}
+                curse_entries = [
+                    {"id": "c:/users/andre/appdata/local/programs/curseforge windows/curseforge.exe", "name": "CurseForge", "type": 0},
+                    {"id": "c:/users/andre/appdata/local/programs/curseforge windows/curseforge.exe:CurseForge", "name": "CurseForge", "type": 0},
+                    {"id": "CurseForge", "name": "CurseForge", "type": 0},
+                    {"id": "curseforge", "name": "CurseForge", "type": 0},
+                    {"id": "curseforge.exe", "name": "CurseForge", "type": 0},
+                    {"id": "CurseForge 1.321.2-40115", "name": "CurseForge", "type": 0},
+                    {"id": "curse.agent.host.exe", "name": "Curse.Agent.Host", "type": 0},
+                    {"id": "overwolf.exe", "name": "Overwolf", "type": 0},
+                    {"id": "overwolf", "name": "Overwolf", "type": 0}
+                ]
+                ia = eq_data["plugins"].get("IgnoreActivities", {})
+                if not ia.get("enabled") or not ia.get("ignoredActivities"):
+                    eq_data["plugins"]["IgnoreActivities"] = {
+                        "enabled": True,
+                        "ignorePlaying": False,
+                        "ignoreStreaming": False,
+                        "ignoreListening": False,
+                        "ignoreWatching": False,
+                        "ignoreCompeting": False,
+                        "ignoredActivities": curse_entries
+                    }
+                    with open(equi_settings, "w", encoding="utf-8") as f:
+                        json.dump(eq_data, f, indent=2)
+                    print("[INFO] Configured Equicord IgnoreActivities for CurseForge suppression", flush=True)
     except Exception:
         pass
 
@@ -2069,6 +2120,15 @@ def detect_active_games(cfg, max_games=3, return_pids=False):
                         g_name = g_meta.get("name", ename)
                         slug = re.sub(r'[^a-z0-9_]', '', g_name.lower().replace(" ", "_"))
                         add_game(g_name, slug, exe_name=ename, discord_icon=g_meta.get("icon"), pid=gpids[0], pids=gpids)
+
+        # Collect all CurseForge & Overwolf helper PIDs for active RPC clearing and suppression
+        BLOCKED_LAUNCHER_EXES = (
+            "curseforge.exe", "curseforgewindows.exe", "curse.agent.host.exe",
+            "overwolf.exe", "overwolflauncher.exe", "overwolfbrowser.exe"
+        )
+        for b_exe in BLOCKED_LAUNCHER_EXES:
+            if b_exe in proc_pids:
+                all_game_pids.update(proc_pids[b_exe])
 
     except Exception:
         pass
