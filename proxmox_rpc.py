@@ -1910,7 +1910,61 @@ module.exports = native;
     except Exception:
         pass
 
-    # Ensure Equicord IgnoreActivities plugin has CurseForge blocked
+    # 1. Maintain Discord app.asar native hook to permanently suppress CurseForge from game scanner
+    try:
+        local_app = os.environ.get("LOCALAPPDATA", "")
+        if local_app:
+            disc_dir = os.path.join(local_app, "Discord")
+            if os.path.isdir(disc_dir):
+                for app_entry in glob.glob(os.path.join(disc_dir, "app-*")):
+                    asar_idx = os.path.join(app_entry, "resources", "app.asar", "index.js")
+                    if os.path.isfile(asar_idx):
+                        try:
+                            with open(asar_idx, "r", encoding="utf-8", errors="ignore") as f:
+                                idx_content = f.read()
+                            if "originalDlopen" not in idx_content:
+                                hook_code = (
+                                    "// Suppress CurseForge and Overwolf from Discord's native game identification\n"
+                                    "try {\n"
+                                    "  const originalDlopen = process.dlopen;\n"
+                                    "  process.dlopen = function(mod, filename, flags) {\n"
+                                    "    const res = originalDlopen.apply(this, arguments);\n"
+                                    "    try {\n"
+                                    "      if (filename && filename.includes('discord_game_utils')) {\n"
+                                    "        const origIdentify = mod.exports.identifyGame;\n"
+                                    "        if (typeof origIdentify === 'function') {\n"
+                                    "          const BLOCKED = ['curseforge', 'curse.agent.host', 'overwolf'];\n"
+                                    "          mod.exports.identifyGame = function(pid, callback) {\n"
+                                    "            return origIdentify.call(mod.exports, pid, (err, data) => {\n"
+                                    "              try {\n"
+                                    "                if (!err && data) {\n"
+                                    "                  const name = (data.name || '').toLowerCase();\n"
+                                    "                  const exe = (data.executableName || '').toLowerCase();\n"
+                                    "                  const pub = (data.publisher || '').toLowerCase();\n"
+                                    "                  if (BLOCKED.some(b => name.includes(b) || exe.includes(b) || pub.includes(b))) {\n"
+                                    "                    return callback(3, { name: '', executableName: data.executableName || '' });\n"
+                                    "                  }\n"
+                                    "                }\n"
+                                    "              } catch(e) {}\n"
+                                    "              return callback(err, data);\n"
+                                    "            });\n"
+                                    "          };\n"
+                                    "        }\n"
+                                    "      }\n"
+                                    "    } catch(e) {}\n"
+                                    "    return res;\n"
+                                    "  };\n"
+                                    "} catch(e) {}\n\n"
+                                )
+                                with open(asar_idx, "w", encoding="utf-8") as f:
+                                    f.write(hook_code + idx_content)
+                                print(f"[INFO] Installed native CurseForge suppression hook in {asar_idx}", flush=True)
+                        except Exception:
+                            pass
+    except Exception:
+        pass
+
+    # 2. Ensure Equicord IgnoreActivities plugin has CurseForge blocked
     try:
         appdata = os.environ.get("APPDATA", "")
         if appdata:
@@ -1939,19 +1993,30 @@ module.exports = native;
                     {"id": "overwolf", "name": "Overwolf", "type": 0}
                 ]
                 ia = eq_data["plugins"].get("IgnoreActivities", {})
-                if not ia.get("enabled") or not ia.get("ignoredActivities"):
-                    eq_data["plugins"]["IgnoreActivities"] = {
-                        "enabled": True,
-                        "ignorePlaying": False,
-                        "ignoreStreaming": False,
-                        "ignoreListening": False,
-                        "ignoreWatching": False,
-                        "ignoreCompeting": False,
-                        "ignoredActivities": curse_entries
-                    }
+                needs_update = False
+                if not ia.get("enabled"):
+                    ia["enabled"] = True
+                    ia["ignorePlaying"] = False
+                    ia["ignoreStreaming"] = False
+                    ia["ignoreListening"] = False
+                    ia["ignoreWatching"] = False
+                    ia["ignoreCompeting"] = False
+                    needs_update = True
+                
+                existing_ids = {e.get("id") for e in ia.get("ignoredActivities", [])}
+                updated_list = list(ia.get("ignoredActivities", []))
+                for c_entry in curse_entries:
+                    if c_entry["id"] not in existing_ids:
+                        updated_list.append(c_entry)
+                        existing_ids.add(c_entry["id"])
+                        needs_update = True
+                
+                if needs_update:
+                    ia["ignoredActivities"] = updated_list
+                    eq_data["plugins"]["IgnoreActivities"] = ia
                     with open(equi_settings, "w", encoding="utf-8") as f:
                         json.dump(eq_data, f, indent=2)
-                    print("[INFO] Configured Equicord IgnoreActivities for CurseForge and Minecraft suppression", flush=True)
+                    print("[INFO] Configured Equicord IgnoreActivities for CurseForge suppression", flush=True)
     except Exception:
         pass
 
@@ -2395,6 +2460,19 @@ def main():
         if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
             print("[INFO] Proxmox Discord RPC is already running in the background. Exiting.", flush=True)
             sys.exit(0)
+
+        # Ensure Registry Run Key exists for seamless background auto-start on boot
+        try:
+            import winreg
+            run_key = r"Software\Microsoft\Windows\CurrentVersion\Run"
+            pyw_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "Scripts", "pythonw.exe")
+            script_path = os.path.abspath(__file__)
+            if os.path.isfile(pyw_path) and os.path.isfile(script_path):
+                cmd_str = f'"{pyw_path}" "{script_path}"'
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, run_key, 0, winreg.KEY_SET_VALUE) as key:
+                    winreg.SetValueEx(key, "ProxmoxDiscordRPC", 0, winreg.REG_SZ, cmd_str)
+        except Exception:
+            pass
 
     cfg = load_config()
     client_id = cfg.get("discord_client_id", "1548928413337788486")
