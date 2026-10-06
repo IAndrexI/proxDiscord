@@ -1542,9 +1542,30 @@
             </div>
           `;
         }
+      } else if (s.name === "Minecraft" && s.mc_status) {
+        const mc = s.mc_status;
+        if (mc.online) {
+          extraContent = `
+            <div class="chips-group" style="margin-top: 8px;">
+              <span class="chip green">● Playing Now</span>
+              ${mc.is_modpack ? `<span class="chip highlight">📦 ${mc.modpack_name || 'Modpack'}</span>` : '<span class="chip highlight">🧱 Vanilla</span>'}
+              ${mc.mods_count ? `<span class="chip">🧩 ${mc.mods_count} Mods</span>` : ''}
+              ${mc.modloader ? `<span class="chip">⚙️ ${mc.modloader}</span>` : (mc.mc_version ? `<span class="chip">v${mc.mc_version}</span>` : '')}
+              ${mc.launcher ? `<span class="chip">🚀 ${mc.launcher}</span>` : ''}
+              <span class="chip">${mc.activity || 'In-Game'}</span>
+            </div>
+          `;
+        } else {
+          extraContent = `
+            <div class="chips-group" style="margin-top: 8px;">
+              <span class="chip">○ Standby</span>
+              <span class="chip">Process Monitor Active</span>
+            </div>
+          `;
+        }
       }
 
-      const subtitle = s.name === "Free Games" ? "GamerPower & Epic Tracker" : (s.screen_type || 'System Screen');
+      const subtitle = s.name === "Free Games" ? "GamerPower & Epic Tracker" : (s.name === "Minecraft" ? "Minecraft & Modpack Tracker" : (s.screen_type || 'System Screen'));
 
       let hostControlsHtml = '';
       if (isMainHost) {
@@ -1617,7 +1638,7 @@
   const BUILTIN_DEFINITIONS = [
     { key: "enable_proxmox_screen", name: "Proxmox Overview", label: "Proxmox VE Overview", desc: "Live CPU, RAM, VMs/LXCs, Storage pools", icon: "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png" },
     { key: "enable_kryptex_screen", name: "Crypto Miner", label: "Crypto Miner (Kryptex)", desc: "Mining state, GPU/CPU hashrate", icon: "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/kryptex.png" },
-    { key: "enable_minecraft_screen", name: "Minecraft", label: "Minecraft Server Status", desc: "Server ping, online players, address", icon: "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/minecraft.png" },
+    { key: "enable_minecraft_screen", name: "Minecraft", label: "Minecraft & Modpacks Tracker", desc: "Real-time process detection, modpacks & vanilla", icon: "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/minecraft.png" },
     { key: "enable_speed_screen", name: "Network Speed", label: "Network Speed & Latency", desc: "Cloudflare latency, upload/download bandwidth", icon: "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/cloudflare.png" },
     { key: "enable_steam_screen", name: "Steam Profile", label: "Steam Profile & Stats", desc: "Persona, Level, 3,500+ Achievements, Badges", icon: "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/steam.png" },
     { key: "enable_github_screen", name: "GitHub Repositories", label: "GitHub Repositories", desc: "Public repo count, verified privacy safe", icon: "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/github_white.png" },
@@ -1789,6 +1810,17 @@
       const isEnabled = cfg[def.key] !== false;
       const isHidden = hiddenSet.has(def.name);
 
+      let subOptionHtml = '';
+      if (def.key === 'enable_minecraft_screen') {
+        const mcOnly = !!cfg.minecraft_only_when_playing;
+        subOptionHtml = `
+          <label style="display: flex; align-items: center; gap: 5px; font-size: 0.74rem; cursor: pointer; color: var(--text-muted); margin-top: 4px;">
+            <input type="checkbox" id="chk-builtin-mc-only" ${mcOnly ? 'checked' : ''}>
+            <span>Only broadcast when playing</span>
+          </label>
+        `;
+      }
+
       const row = document.createElement('div');
       row.className = 'tracker-card-manage';
       row.innerHTML = `
@@ -1797,6 +1829,7 @@
           <div>
             <div class="tracker-manage-title">${def.label}</div>
             <div class="tracker-manage-subtitle">${def.desc}</div>
+            ${subOptionHtml}
           </div>
         </div>
         <div class="tracker-manage-controls">
@@ -1896,6 +1929,11 @@
         patch[def.key] = el.checked;
       }
     });
+
+    const mcOnlyEl = document.getElementById('chk-builtin-mc-only');
+    if (mcOnlyEl) {
+      patch.minecraft_only_when_playing = mcOnlyEl.checked;
+    }
 
     const ok = await saveConfigPatch(patch);
     if (ok) {

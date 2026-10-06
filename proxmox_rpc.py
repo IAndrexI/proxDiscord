@@ -6,6 +6,7 @@ Supports multi-screen rotation, guest party badges, and storage monitoring.
 """
 
 import json
+import glob
 import os
 import re
 import shutil
@@ -329,191 +330,393 @@ def fetch_kryptex_stats(cfg):
         return None
 
 
-_mc_status_cache = {}
-_mc_status_time = {}
-MC_CACHE_TTL = 15.0  # Cache Minecraft status for 15s to keep rotations snappy
-
-
-def _ping_minecraft_slp(host, port=25565, timeout=2.0):
+def get_process_command_line(pid):
     """
-    Pure Python implementation of Minecraft Server List Ping (SLP) protocol.
-    Directly handshakes over TCP socket to retrieve live players, MOTD, and version.
+    Extracts the full command line of any Windows process via fast NT kernel querying.
+    Used to inspect running Java/Minecraft instances, modpack paths, and JVM arguments.
     """
-    import struct
-
+    if not pid or sys.platform != "win32":
+        return ""
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(timeout)
-        s.connect((host, port))
+        import ctypes
+        from ctypes import wintypes
+        ntdll = ctypes.windll.ntdll
+        kernel32 = ctypes.windll.kernel32
 
-        host_bytes = host.encode("utf-8")
+        class PROCESS_BASIC_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ('ExitStatus', wintypes.ULONG),
+                ('PebBaseAddress', ctypes.c_void_p),
+                ('AffinityMask', ctypes.c_void_p),
+                ('BasePriority', wintypes.LONG),
+                ('UniqueProcessId', ctypes.c_void_p),
+                ('InheritedFromUniqueProcessId', ctypes.c_void_p)
+            ]
 
-        def pack_varint(val):
-            total = b""
-            while True:
-                byte = val & 0x7F
-                val >>= 7
-                if val:
-                    total += bytes([byte | 0x80])
-                else:
-                    total += bytes([byte])
-                    break
-            return total
+        class UNICODE_STRING(ctypes.Structure):
+            _fields_ = [
+                ('Length', wintypes.USHORT),
+                ('MaximumLength', wintypes.USHORT),
+                ('Buffer', ctypes.c_void_p)
+            ]
 
-        def unpack_varint(sock):
-            val = 0
-            shift = 0
-            while True:
-                b = sock.recv(1)
-                if not b:
-                    return 0
-                byte = b[0]
-                val |= (byte & 0x7F) << shift
-                if not (byte & 0x80):
-                    break
-                shift += 7
-            return val
-
-        # Handshake packet: packet ID 0x00, protocol version 47, host, port, next state 1 (status)
-        data = b"\x00" + pack_varint(47) + pack_varint(len(host_bytes)) + host_bytes + struct.pack(">H", port) + pack_varint(1)
-        s.sendall(pack_varint(len(data)) + data)
-
-        # Status request packet: packet ID 0x00
-        req = b"\x00"
-        s.sendall(pack_varint(len(req)) + req)
-
-        # Read response packet length and packet ID
-        _ = unpack_varint(s)
-        _ = unpack_varint(s)
-        str_len = unpack_varint(s)
-
-        resp_data = b""
-        while len(resp_data) < str_len:
-            chunk = s.recv(min(str_len - len(resp_data), 4096))
-            if not chunk:
-                break
-            resp_data += chunk
-        s.close()
-
-        return json.loads(resp_data.decode("utf-8", errors="ignore"))
-    except Exception as e:
-        return {"error": str(e)}
-
-
-_mc_worker_started = False
-_mc_lock = threading.Lock()
-_cached_mc_status = None
-
-
-def _query_minecraft_status(server_addr, pve_mc_status="Offline", show_address=False):
-    """
-    Directly queries the Minecraft server (SLP protocol and fallback API).
-    """
-    clean_addr = (server_addr or "minecraft.protutech.vip").strip()
-    host = clean_addr
-    port = 25565
-    if ":" in host:
-        parts = host.split(":", 1)
-        host = parts[0]
+        h = kernel32.OpenProcess(0x1000 | 0x0010, False, int(pid))
+        if not h:
+            return ""
         try:
-            port = int(parts[1])
-        except ValueError:
-            port = 25565
+            pbi = PROCESS_BASIC_INFORMATION()
+            ret = wintypes.ULONG()
+            status = ntdll.NtQueryInformationProcess(h, 0, ctypes.byref(pbi), ctypes.sizeof(pbi), ctypes.byref(ret))
+            if status != 0 or not pbi.PebBaseAddress:
+                return ""
+            user_params = ctypes.c_void_p()
+            read = ctypes.c_size_t()
+            kernel32.ReadProcessMemory(h, ctypes.c_void_p(pbi.PebBaseAddress + 0x20), ctypes.byref(user_params), 8, ctypes.byref(read))
+            if not user_params.value:
+                return ""
+            cmd_uni = UNICODE_STRING()
+            kernel32.ReadProcessMemory(h, ctypes.c_void_p(user_params.value + 0x70), ctypes.byref(cmd_uni), ctypes.sizeof(cmd_uni), ctypes.byref(read))
+            if not cmd_uni.Length or not cmd_uni.Buffer:
+                return ""
+            buf = ctypes.create_unicode_buffer(cmd_uni.Length // 2)
+            kernel32.ReadProcessMemory(h, ctypes.c_void_p(cmd_uni.Buffer), buf, cmd_uni.Length, ctypes.byref(read))
+            return buf.value
+        finally:
+            kernel32.CloseHandle(h)
+    except Exception:
+        return ""
 
-    endpoints = [(host, port)]
-    if not host.replace(".", "").isdigit():
-        for lan_ip in ["192.168.0.246", "192.168.0.2"]:
-            if (lan_ip, port) not in endpoints:
-                endpoints.append((lan_ip, port))
 
-    # 1. Direct Minecraft SLP protocol ping
-    for h, p in endpoints:
-        slp_data = _ping_minecraft_slp(h, p, timeout=1.0)
-        if slp_data and "error" not in slp_data and "players" in slp_data:
-            players = slp_data.get("players", {})
-            online_p = players.get("online", 0)
-            max_p = players.get("max", 0)
-            ver_raw = slp_data.get("version", {}).get("name", "")
-            ver = ver_raw.replace("Requires MC ", "").split()[0] if ver_raw else ""
-            ver_str = f" | v{ver}" if ver else ""
-
-            addr_label = clean_addr if show_address else "Protutech Cloud"
-            return {
-                "online": True,
-                "players_online": online_p,
-                "players_max": max_p,
-                "version": ver,
-                "details": f"Minecraft Server: Online ({online_p}/{max_p})",
-                "state": f"{addr_label}{ver_str}"
-            }
-
-    # 2. Public API verification (api.mcstatus.io)
+def get_process_creation_time(pid):
+    """
+    Returns the Unix epoch timestamp of when a process was created.
+    Ensures Discord's in-game elapsed timer matches the true launch time.
+    """
+    if not pid or sys.platform != "win32":
+        return None
     try:
-        api_url = f"https://api.mcstatus.io/v2/status/java/{host}:{port}" if port != 25565 else f"https://api.mcstatus.io/v2/status/java/{host}"
-        resp = requests.get(api_url, timeout=1.5)
-        if resp.status_code == 200:
-            data = resp.json()
-            if data.get("online"):
-                players = data.get("players", {})
-                online_p = players.get("online", 0)
-                max_p = players.get("max", 0)
-                ver_name = data.get("version", {}).get("name_clean", "")
-                ver_str = f" | {ver_name}" if ver_name else ""
-                addr_label = clean_addr if show_address else "Protutech Cloud"
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.windll.kernel32
+
+        class FILETIME(ctypes.Structure):
+            _fields_ = [('dwLowDateTime', wintypes.DWORD), ('dwHighDateTime', wintypes.DWORD)]
+
+        h = kernel32.OpenProcess(0x1000, False, int(pid))
+        if not h:
+            return None
+        ct, et, kt, ut = FILETIME(), FILETIME(), FILETIME(), FILETIME()
+        kernel32.GetProcessTimes(h, ctypes.byref(ct), ctypes.byref(et), ctypes.byref(kt), ctypes.byref(ut))
+        kernel32.CloseHandle(h)
+        filetime = (ct.dwHighDateTime << 32) + ct.dwLowDateTime
+        # Convert Windows 100ns intervals since Jan 1, 1601 to Unix epoch
+        return (filetime - 116444736000000000) / 10000000
+    except Exception:
+        return None
+
+
+def detect_minecraft_instance(cfg=None):
+    """
+    Real-time local Minecraft & Modpack Detector:
+    1. Scans running processes for javaw.exe, java.exe, Minecraft.Windows.exe.
+    2. Inspects JVM arguments (--gameDir, --version, --fml.mcVersion, -Dminecraft.launcher.brand).
+    3. Resolves modpack metadata (CurseForge minecraftinstance.json, manifest.json, Prism instance.cfg, Modrinth).
+    4. Counts installed mods and parses logs/latest.log for in-game activity (Singleplayer, Multiplayer, Main Menu).
+    """
+    if sys.platform != "win32":
+        return {
+            "online": False,
+            "name": "Minecraft",
+            "modpack_name": None,
+            "is_modpack": False,
+            "mods_count": 0,
+            "mc_version": "",
+            "modloader": "",
+            "launcher": "",
+            "instance_path": "",
+            "pid": None,
+            "activity": "Not Playing",
+            "details": "Minecraft: Not Playing",
+            "state": "No modpack or game running"
+        }
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.windll.kernel32
+
+        class PROCESSENTRY32(ctypes.Structure):
+            _fields_ = [
+                ('dwSize', wintypes.DWORD),
+                ('cntUsage', wintypes.DWORD),
+                ('th32ProcessID', wintypes.DWORD),
+                ('th32DefaultHeapID', ctypes.POINTER(wintypes.ULONG)),
+                ('th32ModuleID', wintypes.DWORD),
+                ('cntThreads', wintypes.DWORD),
+                ('th32ParentProcessID', wintypes.DWORD),
+                ('pcPriClassBase', wintypes.LONG),
+                ('dwFlags', wintypes.DWORD),
+                ('szExeFile', ctypes.c_char * 260),
+            ]
+
+        hSnap = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
+        pe = PROCESSENTRY32()
+        pe.dwSize = ctypes.sizeof(PROCESSENTRY32)
+        candidates = []
+        if kernel32.Process32First(hSnap, ctypes.byref(pe)):
+            while True:
+                ename = pe.szExeFile.decode('latin1', errors='ignore').lower()
+                if ename in ('javaw.exe', 'java.exe', 'minecraft.windows.exe', 'minecraft.exe'):
+                    candidates.append((pe.th32ProcessID, ename))
+                if not kernel32.Process32Next(hSnap, ctypes.byref(pe)):
+                    break
+        kernel32.CloseHandle(hSnap)
+
+        for pid, ename in candidates:
+            if ename == 'minecraft.windows.exe':
+                p_time = get_process_creation_time(pid) or time.time()
                 return {
                     "online": True,
-                    "players_online": online_p,
-                    "players_max": max_p,
-                    "version": ver_name,
-                    "details": f"Minecraft Server: Online ({online_p}/{max_p})",
-                    "state": f"{addr_label}{ver_str}"
+                    "name": "Minecraft (Bedrock)",
+                    "modpack_name": "Minecraft Bedrock Edition",
+                    "is_modpack": False,
+                    "mods_count": 0,
+                    "mc_version": "Bedrock",
+                    "modloader": "Bedrock",
+                    "launcher": "Windows Store",
+                    "instance_path": "",
+                    "pid": pid,
+                    "activity": "In-Game",
+                    "start_time": p_time,
+                    "details": "Playing Minecraft: Bedrock Edition",
+                    "state": "In-Game • Windows"
                 }
-    except Exception:
-        pass
 
-    # 3. Server offline
-    stopped_desc = "Server Stopped" if pve_mc_status == "Online" else "Host Offline"
-    state_str = f"{clean_addr} | {stopped_desc}" if show_address else f"Protutech Cloud | {stopped_desc}"
+            cmd = get_process_command_line(pid)
+            if not cmd:
+                continue
+            cmd_lower = cmd.lower()
+
+            # Ignore launcher crash helpers or background updater assistants
+            if 'crash_assistant' in cmd_lower and 'net.minecraft' not in cmd_lower and '--gamedir' not in cmd_lower:
+                continue
+
+            # Must contain Minecraft launch markers
+            if any(k in cmd_lower for k in ('minecraft', '--gamedir', 'net.minecraft', 'cpw.mods', '--fml.', 'fabricmc', 'quiltmc')):
+                m_dir = re.search(r'--gameDir\s+(?:"([^"]+)"|([^\s]+))', cmd, re.I)
+                game_dir = m_dir.group(1) or m_dir.group(2) if m_dir else ""
+
+                m_ver = re.search(r'--version\s+(?:"([^"]+)"|([^\s]+))', cmd, re.I)
+                version_str = m_ver.group(1) or m_ver.group(2) if m_ver else ""
+
+                m_mc = re.search(r'--fml\.mcVersion\s+([^\s]+)', cmd, re.I)
+                mc_ver = m_mc.group(1) if m_mc else ""
+
+                m_brand = re.search(r'-Dminecraft\.launcher\.brand=([^\s]+)', cmd, re.I)
+                brand = m_brand.group(1) if m_brand else ""
+
+                modpack_name = None
+                loader_name = None
+                mods_count = 0
+                is_modpack = False
+                instance_name = os.path.basename(os.path.normpath(game_dir)) if game_dir else ""
+
+                if game_dir and os.path.isdir(game_dir):
+                    # 1. CurseForge Instance Manifest
+                    mf = os.path.join(game_dir, 'minecraftinstance.json')
+                    if os.path.exists(mf):
+                        try:
+                            with open(mf, 'r', encoding='utf-8', errors='ignore') as f:
+                                d = json.load(f)
+                                modpack_name = d.get('name')
+                                if not mc_ver:
+                                    mc_ver = d.get('gameVersion')
+                                loader_name = d.get('baseModLoader', {}).get('name')
+                        except Exception:
+                            pass
+
+                    # 2. Modpack manifest.json
+                    if not modpack_name:
+                        man = os.path.join(game_dir, 'manifest.json')
+                        if os.path.exists(man):
+                            try:
+                                with open(man, 'r', encoding='utf-8', errors='ignore') as f:
+                                    d = json.load(f)
+                                    modpack_name = d.get('name')
+                                    if not mc_ver:
+                                        mc_ver = d.get('minecraft', {}).get('version')
+                                    if not loader_name:
+                                        lds = d.get('minecraft', {}).get('modLoaders', [])
+                                        if lds:
+                                            loader_name = lds[0].get('id')
+                            except Exception:
+                                pass
+
+                    # 3. Prism Launcher / MultiMC instance.cfg
+                    prism_cfg = os.path.join(game_dir, 'instance.cfg')
+                    if not modpack_name and os.path.exists(prism_cfg):
+                        try:
+                            with open(prism_cfg, 'r', encoding='utf-8', errors='ignore') as f:
+                                for line in f:
+                                    if line.startswith('name='):
+                                        modpack_name = line.strip().split('=', 1)[1]
+                                    elif line.startswith('IntendedVersion=') and not mc_ver:
+                                        mc_ver = line.strip().split('=', 1)[1]
+                        except Exception:
+                            pass
+
+                    # 4. Modrinth modrinth.index.json
+                    mr_file = os.path.join(game_dir, 'modrinth.index.json')
+                    if not modpack_name and os.path.exists(mr_file):
+                        try:
+                            with open(mr_file, 'r', encoding='utf-8', errors='ignore') as f:
+                                mr_data = json.load(f)
+                                modpack_name = mr_data.get('name')
+                                if not mc_ver:
+                                    mc_ver = mr_data.get('gameVersion')
+                        except Exception:
+                            pass
+
+                    # 5. Count installed mod JARs
+                    mods_dir = os.path.join(game_dir, 'mods')
+                    if os.path.isdir(mods_dir):
+                        mods_count = len(glob.glob(os.path.join(mods_dir, '*.jar')))
+
+                    if mods_count > 0 or loader_name or (modpack_name and modpack_name.lower() != 'vanilla'):
+                        is_modpack = True
+
+                    if not modpack_name:
+                        if instance_name and instance_name.lower() not in ('.minecraft', 'minecraft'):
+                            modpack_name = instance_name
+                        elif is_modpack:
+                            modpack_name = "Modded Minecraft"
+                        else:
+                            modpack_name = "Vanilla Minecraft"
+
+                # Version fallback
+                if not mc_ver and version_str:
+                    clean_ver = re.search(r'1\.\d+(?:\.\d+)?', version_str)
+                    mc_ver = clean_ver.group(0) if clean_ver else version_str
+
+                # Loader fallback
+                if not loader_name:
+                    if 'neoforge' in cmd_lower or (version_str and 'neoforge' in version_str.lower()):
+                        loader_name = "NeoForge"
+                    elif 'forge' in cmd_lower or (version_str and 'forge' in version_str.lower()):
+                        loader_name = "Forge"
+                    elif 'fabric' in cmd_lower or (version_str and 'fabric' in version_str.lower()):
+                        loader_name = "Fabric"
+                    elif 'quilt' in cmd_lower or (version_str and 'quilt' in version_str.lower()):
+                        loader_name = "Quilt"
+
+                # Clean loader formatting
+                if loader_name:
+                    loader_clean = loader_name.replace('-', ' ')
+                    if loader_clean.lower().startswith('forge'):
+                        loader_clean = 'Forge ' + loader_clean[5:].strip()
+                    elif loader_clean.lower().startswith('neoforge'):
+                        loader_clean = 'NeoForge ' + loader_clean[8:].strip()
+                    elif loader_clean.lower().startswith('fabric'):
+                        loader_clean = 'Fabric ' + loader_clean[6:].strip()
+                    loader_name = loader_clean
+
+                # 6. Parse latest.log for in-game activity (Singleplayer, Multiplayer, Main Menu)
+                activity_state = "In-Game"
+                if game_dir:
+                    log_file = os.path.join(game_dir, 'logs', 'latest.log')
+                    if os.path.isfile(log_file):
+                        try:
+                            with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                                lines = f.readlines()[-150:]
+                            for line in lines:
+                                if 'title_screen' in line:
+                                    activity_state = "Main Menu"
+                                elif 'Starting integrated server' in line or 'Loaded 0 advancements' in line:
+                                    activity_state = "Singleplayer"
+                                elif 'Connecting to ' in line:
+                                    m_srv = re.search(r'Connecting to ([^\s,]+)', line)
+                                    activity_state = f"Multiplayer ({m_srv.group(1)})" if m_srv else "Multiplayer"
+                                elif 'Saving and stopping server' in line:
+                                    activity_state = "Main Menu"
+                        except Exception:
+                            pass
+
+                # Build details and state
+                if is_modpack:
+                    details = f"Playing: {modpack_name}"
+                    state_parts = []
+                    if mods_count > 0:
+                        state_parts.append(f"{mods_count} Mods")
+                    if loader_name:
+                        state_parts.append(loader_name)
+                    elif mc_ver:
+                        state_parts.append(f"v{mc_ver}")
+                    if activity_state:
+                        state_parts.append(activity_state)
+                    state = " | ".join(state_parts)
+                else:
+                    details = f"Playing Minecraft v{mc_ver}" if mc_ver else "Playing Minecraft"
+                    state = f"Vanilla Minecraft | {activity_state}"
+
+                p_time = get_process_creation_time(pid) or time.time()
+                launcher_name = brand or ("CurseForge" if "curseforge" in (game_dir or "").lower() else "")
+
+                return {
+                    "online": True,
+                    "name": modpack_name or "Minecraft",
+                    "modpack_name": modpack_name or "Minecraft",
+                    "is_modpack": is_modpack,
+                    "mods_count": mods_count,
+                    "mc_version": mc_ver or "",
+                    "modloader": loader_name or "",
+                    "launcher": launcher_name,
+                    "instance_path": game_dir,
+                    "pid": pid,
+                    "activity": activity_state,
+                    "start_time": p_time,
+                    "details": details,
+                    "state": state
+                }
+
+    except Exception as e:
+        print(f"[WARN] Minecraft detection error: {e}", flush=True)
+
     return {
         "online": False,
-        "players_online": 0,
-        "players_max": 0,
-        "version": "",
-        "details": "Minecraft Server: Offline",
-        "state": state_str
+        "name": "Minecraft",
+        "modpack_name": None,
+        "is_modpack": False,
+        "mods_count": 0,
+        "mc_version": "",
+        "modloader": "",
+        "launcher": "",
+        "instance_path": "",
+        "pid": None,
+        "activity": "Not Playing",
+        "details": "Minecraft: Not Playing",
+        "state": "No modpack or game running"
     }
 
 
-def _mc_status_worker():
-    while True:
-        try:
-            cfg = load_config()
-            if cfg.get("enable_minecraft_screen", False):
-                mc_addr = cfg.get("minecraft_server_address", "minecraft.protutech.vip")
-                show_mc_addr = cfg.get("show_minecraft_address", False)
-                res = _query_minecraft_status(mc_addr, show_address=show_mc_addr)
-                with _mc_lock:
-                    global _cached_mc_status
-                    _cached_mc_status = res
-        except Exception:
-            pass
-        time.sleep(15)
+_cached_mc_status = None
+_cached_mc_time = 0.0
+_mc_lock = threading.Lock()
 
 
-def fetch_minecraft_status(server_addr, pve_mc_status="Offline", show_address=False):
+def fetch_minecraft_status(cfg=None):
     """
-    Returns Minecraft status instantly from memory without stalling rotation cycles.
-    A dedicated background daemon thread updates the status every 15 seconds.
+    Returns Minecraft & Modpack status cached for 3 seconds to keep rotations lightning snappy.
     """
-    global _mc_worker_started
-    if not _mc_worker_started:
-        _mc_worker_started = True
-        t = threading.Thread(target=_mc_status_worker, daemon=True)
-        t.start()
+    global _cached_mc_status, _cached_mc_time
+    now = time.time()
     with _mc_lock:
-        if _cached_mc_status is not None:
+        if _cached_mc_status is not None and (now - _cached_mc_time) < 3.0:
             return _cached_mc_status
-    return _query_minecraft_status(server_addr, pve_mc_status=pve_mc_status, show_address=show_address)
+    st = detect_minecraft_instance(cfg)
+    with _mc_lock:
+        _cached_mc_status = st
+        _cached_mc_time = now
+    return st
 
 
 SPEED_CACHE_PATH = os.path.join(LOG_DIR, "speed_cache.json")
@@ -1285,6 +1488,7 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
                 "enable_proxmox_screen": cfg.get("enable_proxmox_screen", True),
                 "enable_kryptex_screen": cfg.get("enable_kryptex_screen", True),
                 "enable_minecraft_screen": cfg.get("enable_minecraft_screen", True),
+                "minecraft_only_when_playing": cfg.get("minecraft_only_when_playing", False),
                 "enable_speed_screen": cfg.get("enable_speed_screen", True),
                 "enable_steam_screen": cfg.get("enable_steam_screen", True),
                 "enable_github_screen": cfg.get("enable_github_screen", True),
@@ -1407,7 +1611,8 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
                 allowed_keys = [
                     "update_interval_seconds", "active_screen",
                     "enable_proxmox_screen", "enable_kryptex_screen",
-                    "enable_minecraft_screen", "enable_speed_screen",
+                    "enable_minecraft_screen", "minecraft_only_when_playing",
+                    "enable_speed_screen",
                     "enable_steam_screen", "enable_github_screen",
                     "enable_free_games_screen", "enable_game_activity",
                     "speedtest_interval_minutes", "steam_cache_minutes",
@@ -2206,15 +2411,17 @@ def main():
 
             # Screen 4: Optional Minecraft Screen (when enabled)
             if cfg.get("enable_minecraft_screen", False):
-                mc_addr = cfg.get("minecraft_server_address", "minecraft.protutech.vip")
-                show_mc_addr = cfg.get("show_minecraft_address", False)
-                mc_status = fetch_minecraft_status(mc_addr, pve_mc_status=stats.get("mc_status", "Offline"), show_address=show_mc_addr)
-                screens.append({
-                    "name": "Minecraft",
-                    "details": mc_status["details"],
-                    "state": mc_status["state"],
-                    "mc_status": mc_status
-                })
+                mc_status = fetch_minecraft_status(cfg)
+                # If configured to only broadcast when actively playing, skip if offline
+                if not (cfg.get("minecraft_only_when_playing", False) and not mc_status.get("online")):
+                    screens.append({
+                        "name": "Minecraft",
+                        "screen_type": "minecraft",
+                        "details": mc_status["details"],
+                        "state": mc_status["state"],
+                        "mc_status": mc_status,
+                        "start_time": mc_status.get("start_time", boot_time) if mc_status.get("online") else boot_time
+                    })
 
             # Screen 5: Optional Network Speed & Latency (when enabled)
             if cfg.get("enable_speed_screen", False):
@@ -2459,7 +2666,8 @@ def main():
                             "steam_data": s.get("steam_data"),
                             "github_stats": s.get("github_stats"),
                             "free_games_data": s.get("free_games_data"),
-                            "game_info": s.get("game_info")
+                            "game_info": s.get("game_info"),
+                            "mc_status": s.get("mc_status")
                         })
 
                     user_id = str(cfg.get("user_id", "andrex")).strip().lower()
@@ -2563,16 +2771,36 @@ def main():
                 else:
                     large_img = BUILTIN_GAME_ICONS.get("minecraft", default_large)
 
-                mc_addr = cfg.get("minecraft_server_address", "minecraft.protutech.vip")
-                show_mc_addr = cfg.get("show_minecraft_address", False)
                 mc_info = current_screen.get("mc_status", {})
-                suffix = f" | {mc_addr}" if show_mc_addr else " | Protutech Cloud"
                 if mc_info.get("online"):
-                    large_txt = f"Minecraft: Online{suffix}"
+                    mp_name = mc_info.get("modpack_name") or "Minecraft"
+                    m_loader = mc_info.get("modloader") or ""
+                    m_mods = mc_info.get("mods_count", 0)
+                    m_ver = mc_info.get("mc_version") or ""
+                    m_act = mc_info.get("activity") or "In-Game"
+                    m_launcher = mc_info.get("launcher") or "Minecraft"
+
+                    if mc_info.get("is_modpack"):
+                        parts = [mp_name]
+                        if m_loader:
+                            parts.append(m_loader)
+                        elif m_ver:
+                            parts.append(f"v{m_ver}")
+                        if m_mods > 0:
+                            parts.append(f"({m_mods} Mods)")
+                        large_txt = " | ".join(parts)
+                    else:
+                        large_txt = f"Minecraft v{m_ver} | {m_act}" if m_ver else f"Minecraft | {m_act}"
+
+                    if len(large_txt) > 120:
+                        large_txt = large_txt[:117] + "..."
+
+                    small_img = default_large
+                    small_txt = f"{m_launcher} • {m_act}"[:120]
                 else:
-                    large_txt = f"Minecraft: Offline{suffix}"
-                small_img = default_large
-                small_txt = "Protutech Cloud"
+                    large_txt = "Minecraft: Standby | Protutech Cloud"
+                    small_img = default_large
+                    small_txt = "Protutech Cloud"
 
             elif current_screen["name"] == "Network Speed":
                 speed_img = cfg.get("speed_image") or game_images.get("speed") or game_images.get("cloudflare") or game_images.get("speedtest")
@@ -2682,16 +2910,17 @@ def main():
                     }
                 ]
 
-            # Optional Party Badge (shows e.g. "(16 of 16)" guests or "(2 of 20)" minecraft players)
+            # Optional Party Badge (shows e.g. "(172 of 172)" mods or "(16 of 16)" guests)
             if current_screen["name"] == "Minecraft":
                 mc_info = current_screen.get("mc_status", {})
-                if mc_info.get("online") and mc_info.get("players_max", 0) > 0:
-                    activity_kwargs["party_size"] = [mc_info["players_online"], mc_info["players_max"]]
-                    activity_kwargs["party_id"] = "minecraft_players"
+                if mc_info.get("online") and mc_info.get("is_modpack") and mc_info.get("mods_count", 0) > 0:
+                    mods_cnt = mc_info["mods_count"]
+                    activity_kwargs["party_size"] = [mods_cnt, mods_cnt]
+                    activity_kwargs["party_id"] = "minecraft_mods"
             elif (cfg.get("show_party_badge", True) 
                   and stats["total_guests"] > 0 
                   and current_screen.get("screen_type") != "game"
-                  and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity", "Network Speed", "Steam Profile", "GitHub Repositories", "GitHub", "Free Games")):
+                  and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity", "Network Speed", "Steam Profile", "GitHub Repositories", "GitHub", "Free Games", "Minecraft")):
                 activity_kwargs["party_size"] = [stats["running_guests"], stats["total_guests"]]
                 activity_kwargs["party_id"] = "protutech_guests"
 
@@ -2699,14 +2928,25 @@ def main():
             target_pid = os.getpid()
 
             if not cfg.get("enable_game_activity", True):
-                # When gaming activity is disabled, run purely on Python's PID and suppress all games
-                target_pid = os.getpid()
+                if current_screen.get("name") == "Minecraft":
+                    mc_info = current_screen.get("mc_status", {})
+                    if mc_info.get("online") and mc_info.get("pid") and is_pid_alive(mc_info["pid"]):
+                        target_pid = mc_info["pid"]
+                    else:
+                        target_pid = os.getpid()
+                else:
+                    # When gaming activity is disabled, run purely on Python's PID and suppress all games
+                    target_pid = os.getpid()
             else:
                 # If current screen is a specific game screen, bind to that specific game's PID
                 if current_screen.get("screen_type") == "game" and current_screen.get("game_info"):
                     g_pid = current_screen["game_info"].get("pid")
                     if g_pid and is_pid_alive(g_pid):
                         target_pid = g_pid
+                elif current_screen.get("name") == "Minecraft":
+                    mc_info = current_screen.get("mc_status", {})
+                    if mc_info.get("online") and mc_info.get("pid") and is_pid_alive(mc_info["pid"]):
+                        target_pid = mc_info["pid"]
                 elif detected_games:
                     chosen_pid = None
                     for target_slug in ("minecraft", "roblox"):
