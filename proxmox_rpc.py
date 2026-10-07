@@ -2905,6 +2905,8 @@ def detect_active_games(cfg, max_games=3, return_pids=False):
             return
         if (slug and slug.lower() in disabled_set) or (name and name.lower() in disabled_set) or (exe_name and exe_name.lower() in disabled_set):
             return
+        if "spiral" in name.lower() or "spiral" in (slug or "").lower():
+            return
         if name.lower() not in seen_names:
             seen_names.add(name.lower())
             detected.append({
@@ -3006,11 +3008,14 @@ def detect_active_games(cfg, max_games=3, return_pids=False):
                     break
         kernel32.CloseHandle(hSnap)
 
+        claimed_exes = set()
+
         # Check custom games from config
         custom_games = cfg.get("custom_games", {})
         for exe_name, c_info in custom_games.items():
             ename = exe_name.lower()
             if ename in proc_pids:
+                claimed_exes.add(ename)
                 gpids = proc_pids[ename]
                 all_game_pids.update(gpids)
                 if len(detected) < max_games:
@@ -3027,6 +3032,7 @@ def detect_active_games(cfg, max_games=3, return_pids=False):
         for exe_name, g_info in KNOWN_GAMES.items():
             ename = exe_name.lower()
             if ename in proc_pids:
+                claimed_exes.add(ename)
                 gpids = proc_pids[ename]
                 all_game_pids.update(gpids)
                 if len(detected) < max_games:
@@ -3038,9 +3044,14 @@ def detect_active_games(cfg, max_games=3, return_pids=False):
                     add_game(name, slug, exe_name=exe_name, pid=gpids[0], pids=gpids)
 
         # Check against comprehensive Discord games database (10,000+ PC games)
+        # Skip generic runtime and interpreter executables that are handled specially
+        GENERIC_RUNTIMES = {"javaw.exe", "java.exe", "python.exe", "pythonw.exe", "cmd.exe", "powershell.exe", "explorer.exe"}
         if _discord_games_db:
             for ename in proc_pids:
+                if ename in claimed_exes or ename in GENERIC_RUNTIMES:
+                    continue
                 if ename in _discord_games_db:
+                    claimed_exes.add(ename)
                     gpids = proc_pids[ename]
                     all_game_pids.update(gpids)
                     if len(detected) < max_games:
