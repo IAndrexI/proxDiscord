@@ -2037,6 +2037,35 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+        elif parsed_path.startswith("/assets/"):
+            asset_filename = os.path.basename(parsed_path)
+            asset_path = os.path.join(LOG_DIR, "assets", asset_filename)
+            if os.path.isfile(asset_path):
+                try:
+                    ctype = "image/png"
+                    if asset_filename.lower().endswith(".webp"):
+                        ctype = "image/webp"
+                    elif asset_filename.lower().endswith((".jpg", ".jpeg")):
+                        ctype = "image/jpeg"
+                    elif asset_filename.lower().endswith(".gif"):
+                        ctype = "image/gif"
+                    elif asset_filename.lower().endswith(".svg"):
+                        ctype = "image/svg+xml"
+                    with open(asset_path, "rb") as f:
+                        img_data = f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Content-Length", str(len(img_data)))
+                    self.send_header("Cache-Control", "public, max-age=3600")
+                    self.end_headers()
+                    self.wfile.write(img_data)
+                    return
+                except Exception:
+                    pass
+            self.send_response(404)
+            self.end_headers()
+
         elif parsed_path == "/api/games":
             cfg = load_config()
             detected, _ = detect_active_games(cfg, max_games=10, return_pids=True)
@@ -3096,6 +3125,7 @@ DEFAULT_GITHUB_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/ass
 DEFAULT_DVD_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/dvd.png"
 DEFAULT_FREE_GAMES_ICON = DEFAULT_DVD_ICON
 DEFAULT_EPIC_GAMES_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/epic-games.png"
+DEFAULT_CONTROLLER_ICON = "https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji@main/assets/Video%20game/3D/video_game_3d.png"
 
 # Built-in official Discord CDN application icons for instant zero-latency image matching
 BUILTIN_GAME_ICONS = {
@@ -3111,6 +3141,10 @@ BUILTIN_GAME_ICONS = {
     "dvd": DEFAULT_DVD_ICON,
     "disc": DEFAULT_DVD_ICON,
     "freegames": DEFAULT_FREE_GAMES_ICON,
+    "controller": DEFAULT_CONTROLLER_ICON,
+    "gamepad": DEFAULT_CONTROLLER_ICON,
+    "games_hub": DEFAULT_CONTROLLER_ICON,
+    "active_games": DEFAULT_CONTROLLER_ICON,
     "roblox": "https://cdn.discordapp.com/app-icons/363445589247131668/f2b60e350a2097289b3b0b877495e55f.png",
     "minecraft": "https://cdn.discordapp.com/app-icons/1402418491272986635/166fbad351ecdd02d11a3b464748f66b.png",
     "valorant": "https://cdn.discordapp.com/app-icons/700136079562375258/11f81959f4fdd76ca6c39c59eac256c1.png",
@@ -3428,6 +3462,7 @@ def main():
                             "active_games": active_games,
                             "party_size": [cnt, max(cnt, 4)],
                             "party_id": "active_games_hub",
+                            "large_image": cfg.get("games_hub_image") or cfg.get("controller_image") or DEFAULT_CONTROLLER_ICON,
                             "start_time": hub_start
                         })
 
@@ -3452,6 +3487,7 @@ def main():
                             "details": "Gaming: Standby",
                             "state": "No games currently open",
                             "active_games": [],
+                            "large_image": cfg.get("games_hub_image") or cfg.get("controller_image") or DEFAULT_CONTROLLER_ICON,
                             "start_time": boot_time
                         })
                     else:
@@ -3717,8 +3753,11 @@ def main():
                     "market": "Crypto & Stocks",
                     "crypto": "Crypto & Stocks",
                     "stocks": "Crypto & Stocks",
-                    "activegames": "Active Games",
-                    "hub": "Active Games"
+                    "activegames": "Active Games Hub",
+                    "hub": "Active Games Hub",
+                    "games_hub": "Active Games Hub",
+                    "controller": "Active Games Hub",
+                    "gamepad": "Active Games Hub"
                 }
                 target_name = alias_map.get(active_mode, active_mode)
                 for s in screens:
@@ -3769,8 +3808,8 @@ def main():
                                 s_icon = BUILTIN_GAME_ICONS.get("minecraft", DEFAULT_PROXMOX_ICON)
                             elif s_name == "Crypto & Stocks":
                                 s_icon = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/tradingview.png"
-                            elif s_name in ("Active Games", "Active Games Hub"):
-                                s_icon = BUILTIN_GAME_ICONS.get("roblox", DEFAULT_STEAM_ICON)
+                            elif s_name in ("Active Games", "Active Games Hub") or s_type == "games_hub":
+                                s_icon = cfg.get("games_hub_image") or cfg.get("controller_image") or DEFAULT_CONTROLLER_ICON
                             elif s_type == "game":
                                 s_icon = resolve_game_image(s.get("game_info"), cfg) or default_large
                             elif s_type == "custom":
@@ -3989,17 +4028,15 @@ def main():
                 small_img = default_large
                 small_txt = "Protutech Cloud"
 
-            elif current_screen["name"] == "Active Games":
+            elif current_screen["name"] in ("Active Games", "Active Games Hub") or current_screen.get("screen_type") == "games_hub":
                 active_g = current_screen.get("active_games", [])
+                controller_img = cfg.get("games_hub_image") or cfg.get("controller_image") or DEFAULT_CONTROLLER_ICON
+                large_img = controller_img
                 if active_g:
-                    first_g = active_g[0]
-                    chosen_g_img = resolve_game_image(first_g, cfg)
-                    large_img = chosen_g_img or BUILTIN_GAME_ICONS.get("roblox", DEFAULT_STEAM_ICON)
                     g_names_all = ", ".join(g["name"] for g in active_g)
-                    large_txt = f"Active: {g_names_all} | Gaming Hub"
+                    large_txt = f"Active: {g_names_all} • Gaming Hub"
                 else:
-                    large_img = default_large
-                    large_txt = "Gaming Hub | Standby"
+                    large_txt = "Gaming Hub • Standby"
                 if len(large_txt) > 120:
                     large_txt = large_txt[:117] + "..."
                 small_img = default_large
@@ -4114,7 +4151,7 @@ def main():
                 if mc_srv.get("online"):
                     activity_kwargs["party_size"] = [mc_srv.get("players_online", 0), mc_srv.get("players_max", 20)]
                     activity_kwargs["party_id"] = "mc_server_players"
-            elif current_screen["name"] == "Active Games":
+            elif current_screen["name"] in ("Active Games", "Active Games Hub") or current_screen.get("screen_type") == "games_hub":
                 if current_screen.get("party_size"):
                     activity_kwargs["party_size"] = current_screen["party_size"]
                     activity_kwargs["party_id"] = "active_games_hub"
@@ -4126,8 +4163,8 @@ def main():
                     activity_kwargs["party_id"] = "steam_level"
             elif (cfg.get("show_party_badge", True) 
                   and stats["total_guests"] > 0 
-                  and current_screen.get("screen_type") != "game"
-                  and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity", "Network Speed", "Steam Profile", "GitHub Repositories", "GitHub", "Free Games", "Minecraft", "Minecraft Server", "Crypto & Stocks", "Active Games")):
+                  and current_screen.get("screen_type") not in ("game", "games_hub")
+                  and current_screen["name"] not in ("Kryptex Miner", "Crypto Miner", "Game Activity", "Network Speed", "Steam Profile", "GitHub Repositories", "GitHub", "Free Games", "Minecraft", "Minecraft Server", "Crypto & Stocks", "Active Games", "Active Games Hub")):
                 activity_kwargs["party_size"] = [stats["running_guests"], stats["total_guests"]]
                 activity_kwargs["party_id"] = "protutech_guests"
 
