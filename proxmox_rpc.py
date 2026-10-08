@@ -3126,6 +3126,8 @@ DEFAULT_DVD_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets
 DEFAULT_FREE_GAMES_ICON = DEFAULT_DVD_ICON
 DEFAULT_EPIC_GAMES_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/epic-games.png"
 DEFAULT_CONTROLLER_ICON = "https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji@main/assets/Video%20game/3D/video_game_3d.png"
+DEFAULT_MARKET_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/stocks_up.png"
+DEFAULT_STOCKS_ICON = DEFAULT_MARKET_ICON
 
 # Built-in official Discord CDN application icons for instant zero-latency image matching
 BUILTIN_GAME_ICONS = {
@@ -3145,6 +3147,9 @@ BUILTIN_GAME_ICONS = {
     "gamepad": DEFAULT_CONTROLLER_ICON,
     "games_hub": DEFAULT_CONTROLLER_ICON,
     "active_games": DEFAULT_CONTROLLER_ICON,
+    "market": DEFAULT_MARKET_ICON,
+    "stocks": DEFAULT_MARKET_ICON,
+    "crypto": DEFAULT_MARKET_ICON,
     "roblox": "https://cdn.discordapp.com/app-icons/363445589247131668/f2b60e350a2097289b3b0b877495e55f.png",
     "minecraft": "https://cdn.discordapp.com/app-icons/1402418491272986635/166fbad351ecdd02d11a3b464748f66b.png",
     "valorant": "https://cdn.discordapp.com/app-icons/700136079562375258/11f81959f4fdd76ca6c39c59eac256c1.png",
@@ -3664,7 +3669,8 @@ def main():
                         "screen_type": "market",
                         "details": m_details,
                         "state": m_state,
-                        "market_data": m_data
+                        "market_data": m_data,
+                        "large_image": cfg.get("market_image") or cfg.get("stocks_image") or DEFAULT_MARKET_ICON
                     })
 
             # Screen 9+: Custom Trackers (when configured)
@@ -3806,8 +3812,8 @@ def main():
                                 s_icon = mc_icon or BUILTIN_GAME_ICONS.get("minecraft", DEFAULT_PROXMOX_ICON)
                             elif s_name == "Minecraft Server":
                                 s_icon = BUILTIN_GAME_ICONS.get("minecraft", DEFAULT_PROXMOX_ICON)
-                            elif s_name == "Crypto & Stocks":
-                                s_icon = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/tradingview.png"
+                            elif s_name == "Crypto & Stocks" or s_type == "market":
+                                s_icon = cfg.get("market_image") or cfg.get("stocks_image") or DEFAULT_MARKET_ICON
                             elif s_name in ("Active Games", "Active Games Hub") or s_type == "games_hub":
                                 s_icon = cfg.get("games_hub_image") or cfg.get("controller_image") or DEFAULT_CONTROLLER_ICON
                             elif s_type == "game":
@@ -4019,8 +4025,8 @@ def main():
                 small_img = default_large
                 small_txt = "Protutech Cloud"
 
-            elif current_screen["name"] == "Crypto & Stocks":
-                market_icon = cfg.get("market_image") or "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/tradingview.png"
+            elif current_screen["name"] == "Crypto & Stocks" or current_screen.get("screen_type") == "market":
+                market_icon = cfg.get("market_image") or cfg.get("stocks_image") or DEFAULT_MARKET_ICON
                 large_img = market_icon
                 large_txt = "Market Watch | BTC, ETH, SOL, NVDA, AAPL, MSFT, SPY"
                 if len(large_txt) > 120:
