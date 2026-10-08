@@ -108,7 +108,8 @@ def make_default_proxmox_stats(cfg):
         "mem_used": 0.0,
         "mem_total": 1.0,
         "mem_pct": 0.0,
-        "storage_pool": "local",
+        "storage_pool": "sn770 + local-lvm",
+        "storage_pools": [],
         "storage_used_gb": 0.0,
         "storage_total_tb": 1.0,
         "storage_pct": 0.0,
@@ -175,18 +176,65 @@ def fetch_proxmox_stats(cfg):
     lxc_res = requests.get(lxc_url, headers=headers, verify=False, timeout=8)
     lxc_data = lxc_res.json().get("data", []) if lxc_res.status_code == 200 else []
 
-    # 5. Fetch Storage Pools (find largest storage pool like local-lvm)
-    storage_url = f"{host}/api2/json/nodes/{node}/storage"
-    storage_res = requests.get(storage_url, headers=headers, verify=False, timeout=8)
-    storage_data = storage_res.json().get("data", []) if storage_res.status_code == 200 else []
-    active_pools = [s for s in storage_data if s.get("active")]
-    primary_pool = max(active_pools, key=lambda s: s.get("total", 0), default={})
+    # 5. Fetch Storage Pools across all nodes (including newly added drives like sn770)
+    storage_pools = []
+    tot_used_gb = 0.0
+    tot_total_gb = 0.0
 
-    pool_name = primary_pool.get("storage", "local-lvm")
-    pool_used_gb = primary_pool.get("used", 0) / (1024 ** 3)
-    pool_total_gb = primary_pool.get("total", 1) / (1024 ** 3)
-    pool_total_tb = pool_total_gb / 1024
-    pool_pct = (pool_used_gb / pool_total_gb) * 100 if pool_total_gb else 0
+    all_nodes = [node]
+    try:
+        nodes_url = f"{host}/api2/json/nodes"
+        nodes_res = requests.get(nodes_url, headers=headers, verify=False, timeout=5)
+        if nodes_res.status_code == 200:
+            discovered_nodes = [n.get("node") for n in nodes_res.json().get("data", []) if n.get("node")]
+            if discovered_nodes:
+                all_nodes = discovered_nodes
+    except Exception:
+        pass
+
+    seen_storage_keys = set()
+    for n in all_nodes:
+        try:
+            storage_url = f"{host}/api2/json/nodes/{n}/storage"
+            storage_res = requests.get(storage_url, headers=headers, verify=False, timeout=8)
+            storage_data = storage_res.json().get("data", []) if storage_res.status_code == 200 else []
+            active_pools = [s for s in storage_data if s.get("active")]
+            for s in active_pools:
+                s_name = s.get("storage", "unknown")
+                st_key = f"{n}:{s_name}"
+                if st_key in seen_storage_keys:
+                    continue
+                seen_storage_keys.add(st_key)
+
+                s_type = s.get("type", "")
+                s_used = s.get("used", 0) / (1024 ** 3)
+                s_total = s.get("total", 1) / (1024 ** 3)
+                s_total_tb = s_total / 1024
+                s_pct = (s_used / s_total) * 100 if s_total else 0
+                tot_used_gb += s_used
+                tot_total_gb += s_total
+                storage_pools.append({
+                    "node": n,
+                    "name": s_name,
+                    "type": s_type,
+                    "used_gb": round(s_used, 1),
+                    "total_gb": round(s_total, 1),
+                    "total_tb": round(s_total_tb, 2),
+                    "pct": round(s_pct, 1),
+                    "content": s.get("content", ""),
+                    "is_new": (s_name.lower() == "sn770")
+                })
+        except Exception:
+            pass
+
+    # Sort: put sn770 and local-lvm at top, then local
+    storage_pools.sort(key=lambda p: (0 if p["name"] == "sn770" else (1 if p["name"] == "local-lvm" else 2), -p["total_gb"]))
+
+    tot_total_tb = tot_total_gb / 1024 if tot_total_gb else 1.0
+    tot_pct = (tot_used_gb / tot_total_gb) * 100 if tot_total_gb else 0
+
+    named_main = [p["name"] for p in storage_pools if p["name"] in ("sn770", "local-lvm")]
+    pool_summary_name = " + ".join(named_main) if named_main else "local-lvm"
 
     # Compute CPU & Memory
     raw_cpu = current_node_summary.get("cpu") if current_node_summary.get("cpu") is not None else node_data.get("cpu", 0)
@@ -215,10 +263,11 @@ def fetch_proxmox_stats(cfg):
         "mem_used": mem_used,
         "mem_total": mem_total,
         "mem_pct": mem_pct,
-        "storage_pool": pool_name,
-        "storage_used_gb": pool_used_gb,
-        "storage_total_tb": pool_total_tb,
-        "storage_pct": pool_pct,
+        "storage_pool": pool_summary_name,
+        "storage_pools": storage_pools,
+        "storage_used_gb": tot_used_gb,
+        "storage_total_tb": tot_total_tb,
+        "storage_pct": tot_pct,
         "running_vms": running_vms,
         "total_vms": total_vms,
         "running_lxcs": running_lxcs,
@@ -3117,7 +3166,7 @@ def detect_game_activity(cfg):
 
 # Official Brand Logo CDNs
 DEFAULT_PROXMOX_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png"
-DEFAULT_KRYPTEX_ICON = "https://www.kryptex.com/static/v2/favicons/android-chrome-512x512.aba2291aca42.png"
+DEFAULT_KRYPTEX_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/kryptex.png"
 DEFAULT_CLOUDFLARE_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/cloudflare.png"
 DEFAULT_SPEED_ICON = DEFAULT_CLOUDFLARE_ICON
 DEFAULT_STEAM_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/steam.png"
@@ -3125,7 +3174,7 @@ DEFAULT_GITHUB_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/ass
 DEFAULT_DVD_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/dvd.png"
 DEFAULT_FREE_GAMES_ICON = DEFAULT_DVD_ICON
 DEFAULT_EPIC_GAMES_ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/epic-games.png"
-DEFAULT_CONTROLLER_ICON = "https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji@main/assets/Video%20game/3D/video_game_3d.png"
+DEFAULT_CONTROLLER_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/controller.png"
 DEFAULT_MARKET_ICON = "https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/stocks_up.png"
 DEFAULT_STOCKS_ICON = DEFAULT_MARKET_ICON
 
@@ -3405,12 +3454,36 @@ def main():
                     pve_state = "Protutech Cloud Services"
                 else:
                     pve_details = f"{node_tag} (Up: {stats.get('uptime', '0m')}) | {stats.get('running_vms', 0)} VMs | {stats.get('running_lxcs', 0)} LXCs"
-                    pve_state = f"CPU: {stats.get('cpu_pct', 0.0):.1f}% | RAM: {stats.get('mem_pct', 0.0):.0f}% | Storage: {stats.get('storage_used_gb', 0.0):.0f}G/{stats.get('storage_total_tb', 1.0):.1f}TB"
+                    st_pools = stats.get("storage_pools", [])
+                    main_drives = [p for p in st_pools if p["name"] in ("sn770", "local-lvm")]
+                    if main_drives:
+                        d_parts = [f"{p['name']}: {p['used_gb']:.0f}G/{p['total_tb']:.1f}T" if p['total_tb'] >= 1 else f"{p['name']}: {p['used_gb']:.0f}G/{p['total_gb']:.0f}G" for p in main_drives]
+                        d_str = " • ".join(d_parts)
+                        pve_state = f"CPU: {stats.get('cpu_pct', 0.0):.1f}% | RAM: {stats.get('mem_pct', 0.0):.0f}% | {d_str}"
+                    else:
+                        pve_state = f"CPU: {stats.get('cpu_pct', 0.0):.1f}% | RAM: {stats.get('mem_pct', 0.0):.0f}% | Storage: {stats.get('storage_used_gb', 0.0):.0f}G/{stats.get('storage_total_tb', 1.0):.1f}TB"
                 screens.append({
                     "name": "Proxmox Overview",
                     "details": pve_details,
                     "state": pve_state
                 })
+
+            # Screen 1b: Dedicated Node Storage Drives Screen (highlights sn770 & local-lvm)
+            if cfg.get("enable_storage_screen", True) and not stats.get("offline"):
+                st_pools = stats.get("storage_pools", [])
+                if st_pools:
+                    tot_used = stats.get('storage_used_gb', 0.0)
+                    tot_tb = stats.get('storage_total_tb', 1.0)
+                    tot_pct = stats.get('storage_pct', 0.0)
+                    d_parts = [f"{p['name']}: {p['used_gb']:.0f}G/{p['total_tb']:.1f}T" if p['total_tb'] >= 1 else f"{p['name']}: {p['used_gb']:.0f}G/{p['total_gb']:.0f}G" for p in st_pools if p.get('name') in ('sn770', 'local-lvm', 'local')]
+                    screens.append({
+                        "name": "Node Storage",
+                        "screen_type": "storage",
+                        "details": f"Node Storage: {tot_used:.0f}G / {tot_tb:.1f}TB Total ({tot_pct:.1f}%)",
+                        "state": " • ".join(d_parts),
+                        "storage_pools": st_pools,
+                        "large_image": DEFAULT_PROXMOX_ICON
+                    })
 
             # Screen 2: Cryptocurrency Mining Status (when enabled)
             k_stats = None
@@ -3763,7 +3836,11 @@ def main():
                     "hub": "Active Games Hub",
                     "games_hub": "Active Games Hub",
                     "controller": "Active Games Hub",
-                    "gamepad": "Active Games Hub"
+                    "gamepad": "Active Games Hub",
+                    "storage": "Node Storage",
+                    "drives": "Node Storage",
+                    "disks": "Node Storage",
+                    "sn770": "Node Storage"
                 }
                 target_name = alias_map.get(active_mode, active_mode)
                 for s in screens:
@@ -3793,7 +3870,7 @@ def main():
                         try:
                             s_name = s.get("name", "")
                             s_type = s.get("screen_type", "System Screen")
-                            if s_name == "Proxmox Overview":
+                            if s_name in ("Proxmox Overview", "Node Storage") or s_type == "storage":
                                 s_icon = DEFAULT_PROXMOX_ICON
                             elif s_name == "Crypto Miner":
                                 s_icon = DEFAULT_KRYPTEX_ICON
@@ -3834,7 +3911,8 @@ def main():
                             "hidden": s.get("name") in cfg.get("hidden_screens", []),
                             "custom_id": s.get("custom_id"),
                             "custom_data": s.get("custom_data"),
-                            "stats": stats if s.get("name") == "Proxmox Overview" else None,
+                            "stats": stats if s.get("name") in ("Proxmox Overview", "Node Storage") else None,
+                            "storage_pools": s.get("storage_pools") or (stats.get("storage_pools") if stats else []),
                             "k_stats": k_stats if s.get("name") == "Crypto Miner" else None,
                             "net_stats": _net_stats if s.get("name") == "Network Speed" else None,
                             "steam_data": s.get("steam_data"),
@@ -3904,10 +3982,13 @@ def main():
             small_img = None
             small_txt = None
 
-            if current_screen["name"] == "Proxmox Overview":
+            if current_screen["name"] in ("Proxmox Overview", "Node Storage") or current_screen.get("screen_type") == "storage":
                 pve_img = cfg.get("proxmox_image") or game_images.get("proxmox") or DEFAULT_PROXMOX_ICON
                 large_img = pve_img
-                large_txt = f"Proxmox VE | {stats['running_guests']}/{stats['total_guests']} Services Online"
+                if current_screen["name"] == "Node Storage":
+                    large_txt = f"{label} | Storage Drives (sn770, local-lvm)"
+                else:
+                    large_txt = f"Proxmox VE | {stats['running_guests']}/{stats['total_guests']} Services Online"
                 small_img = default_large
                 small_txt = "Protutech Cloud"
 

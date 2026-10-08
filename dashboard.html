@@ -1369,7 +1369,7 @@
         <div class="widget-catalog-card">
           <div class="widget-card-top">
             <div class="widget-card-title-row">
-              <img src="https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji@main/assets/Video%20game/3D/video_game_3d.png" class="widget-card-icon">
+              <img src="https://cdn.jsdelivr.net/gh/IAndrexI/proxDiscord@main/assets/controller.png" class="widget-card-icon" onerror="this.src='/assets/controller.png'">
               <div>
                 <div class="widget-card-name">Active Games Hub Widget</div>
                 <div class="widget-card-desc">Dynamic multi-game hub (Roblox, Minecraft, etc.)</div>
@@ -1580,6 +1580,7 @@
             <select id="cfg-active-screen" class="form-select">
               <option value="rotate">🔄 Auto-Rotate All Active Screens</option>
               <option value="proxmox">🖥️ Lock to Proxmox VE</option>
+              <option value="storage">💾 Lock to Node Storage (Drives &amp; NVMe)</option>
               <option value="kryptex">⛏️ Lock to Crypto Miner</option>
               <option value="minecraft">🧱 Lock to Minecraft Client</option>
               <option value="minecraft_server">🌐 Lock to Minecraft Server</option>
@@ -1965,25 +1966,63 @@
       let extraContent = '';
 
       // Screen-specific rich metric displays
-      if (s.name === "Proxmox Overview" && s.stats) {
+      if ((s.name === "Proxmox Overview" || s.name === "Node Storage") && s.stats) {
         const cpu = s.stats.cpu_pct || 0;
         const ram = s.stats.mem_pct || 0;
         const usedGb = (s.stats.storage_used_gb || 0).toFixed(0);
         const totalTb = (s.stats.storage_total_tb || 0).toFixed(1);
         const stPct = s.stats.storage_pct || 0;
+        const pools = s.stats.storage_pools || s.storage_pools || [];
+
+        let storageBarsHtml = '';
+        if (pools.length > 0) {
+          storageBarsHtml = `
+            <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);">
+              <div style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px; font-weight: 600;">Node Storage Drives (${pools.length} Active)</div>
+              ${pools.map(p => {
+                const isNew = (p.name.toLowerCase() === 'sn770');
+                const isLvm = (p.name.toLowerCase() === 'local-lvm');
+                const newBadge = isNew ? ' <span style="font-size:0.65rem; background:rgba(34,197,94,0.2); color:#22c55e; border:1px solid rgba(34,197,94,0.4); padding:1px 6px; border-radius:4px; font-weight:700;">NEW DRIVE</span>' : '';
+                const capStr = p.total_tb >= 1 ? `${p.used_gb.toFixed(0)} GB / ${p.total_tb.toFixed(2)} TB` : `${p.used_gb.toFixed(0)} GB / ${p.total_gb.toFixed(0)} GB`;
+                const barGradient = isNew 
+                  ? 'background: linear-gradient(90deg, #10b981, #00e676);' 
+                  : (isLvm ? 'background: linear-gradient(90deg, #3b82f6, #06b6d4);' : 'background: linear-gradient(90deg, #f0b232, #f23f43);');
+                return `
+                  <div class="metric-row" style="margin-top:5px; font-size:0.78rem;">
+                    <span>Drive: <strong>${p.name}</strong> <span style="color:var(--text-muted); font-size:0.7rem;">(${p.type})</span>${newBadge}</span>
+                    <span>${capStr} (${p.pct}%)</span>
+                  </div>
+                  <div class="progress-bar-bg" style="height:5px;"><div class="progress-bar-fill" style="width: ${Math.min(100, p.pct)}%; ${barGradient}"></div></div>
+                `;
+              }).join('')}
+            </div>
+          `;
+        } else {
+          storageBarsHtml = `
+            <div class="metric-row"><span>Storage Pool (${s.stats.storage_pool || 'local-lvm'})</span><span>${usedGb}G / ${totalTb}TB</span></div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${Math.min(100, stPct)}%; background: linear-gradient(90deg, #f0b232, #f23f43);"></div></div>
+          `;
+        }
 
         extraContent = `
           <div style="margin-top: 8px;">
-            <div class="metric-row"><span>CPU Utilization</span><span>${cpu.toFixed(1)}%</span></div>
-            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${Math.min(100, cpu)}%;"></div></div>
+            ${s.name === "Proxmox Overview" ? `
+              <div class="metric-row"><span>CPU Utilization</span><span>${cpu.toFixed(1)}%</span></div>
+              <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${Math.min(100, cpu)}%;"></div></div>
 
-            <div class="metric-row"><span>Memory Usage</span><span>${ram.toFixed(0)}%</span></div>
-            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${Math.min(100, ram)}%; background: linear-gradient(90deg, #5865f2, #9b59b6);"></div></div>
+              <div class="metric-row"><span>Memory Usage</span><span>${ram.toFixed(0)}%</span></div>
+              <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${Math.min(100, ram)}%; background: linear-gradient(90deg, #5865f2, #9b59b6);"></div></div>
+            ` : ''}
 
-            <div class="metric-row"><span>Storage Pool (${s.stats.storage_pool || 'local-lvm'})</span><span>${usedGb}G / ${totalTb}TB</span></div>
-            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${Math.min(100, stPct)}%; background: linear-gradient(90deg, #f0b232, #f23f43);"></div></div>
+            <div class="metric-row" style="${s.name === 'Proxmox Overview' ? 'margin-top:6px;' : ''} font-weight:600;">
+              <span>Total Node Storage (${usedGb} GB / ${totalTb} TB)</span>
+              <span>${stPct.toFixed(1)}%</span>
+            </div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${Math.min(100, stPct)}%; background: linear-gradient(90deg, #3b82f6, #10b981);"></div></div>
 
-            <div class="chips-group">
+            ${storageBarsHtml}
+
+            <div class="chips-group" style="margin-top: 10px;">
               <span class="chip green">● ${s.stats.running_vms || 0}/${s.stats.total_vms || 0} VMs</span>
               <span class="chip green">● ${s.stats.running_lxcs || 0}/${s.stats.total_lxcs || 0} LXCs</span>
               <span class="chip">Up: ${s.stats.uptime || '0m'}</span>
@@ -2172,6 +2211,7 @@
       else if (s.name === "Minecraft Server") subtitle = "Dedicated Server";
       else if (s.name === "Crypto & Stocks") subtitle = "Yahoo Finance Watch";
       else if (s.name === "Active Games Hub") subtitle = "Multi-Game Session Hub";
+      else if (s.name === "Node Storage") subtitle = "Storage Drives & NVMe Pools";
 
       let hostControlsHtml = '';
       if (isMainHost) {
