@@ -1163,6 +1163,7 @@
 
       <button class="btn" onclick="fetchStats()">↻ Refresh</button>
       <button class="btn" id="auto-btn" onclick="toggleAuto()">Auto: 3s</button>
+      <button class="btn" id="btn-download-app" onclick="openDownloadModal()" style="border-color: #23a55a; background: rgba(35, 165, 90, 0.15); color: #7bf1a8;">📥 Desktop App</button>
       <button class="btn" id="btn-add-widget" onclick="onAddWidgetClick()" style="border-color: var(--accent); background: rgba(88, 101, 242, 0.15); color: #b5c2f8;">➕ Add Widget</button>
 
       <!-- Main Host Controls (Only displayed when authenticated as host) -->
@@ -1342,10 +1343,12 @@
             </div>
             <div class="form-row">
               <div class="form-group" style="margin-bottom:0;">
-                <label style="font-size:0.75rem;">Token Type</label>
+                <label style="font-size:0.75rem;">Auth Type</label>
                 <select id="select-stoat-token-type" class="form-select" style="padding:6px 8px; font-size:0.8rem;">
-                  <option value="user">User Session</option>
-                  <option value="bot">Bot Token</option>
+                  <option value="user">User Session (X-Session-Token)</option>
+                  <option value="bot">Bot Token (x-bot-token)</option>
+                  <option value="bearer">Bearer Token (Authorization)</option>
+                  <option value="webhook">Channel Webhook (POST)</option>
                 </select>
               </div>
               <div class="form-group" style="margin-bottom:0;">
@@ -1358,8 +1361,12 @@
                 </select>
               </div>
             </div>
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px;">
-              <button type="button" class="widget-test-btn" onclick="testStoatConnection()">💬 Check Status</button>
+            <div class="form-group" style="margin-bottom:0; margin-top: 6px;">
+              <label style="font-size:0.75rem;">Status Format Template</label>
+              <input type="text" id="input-stoat-template" class="form-input" style="padding:6px 8px; font-size:0.8rem;" value="{details} • {state}" placeholder="{details} • {state}">
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 6px;">
+              <button type="button" class="widget-test-btn" onclick="testStoatConnection()">💬 Test Connection</button>
               <div id="test-stoat-res" class="test-result-box"></div>
             </div>
           </div>
@@ -1729,6 +1736,74 @@
   </div>
 </div>
 
+<!-- Desktop App Download Modal -->
+<div class="modal-overlay" id="download-modal" onclick="closeDownloadModalOnBg(event)">
+  <div class="modal-content" style="max-width: 680px;">
+    <div class="modal-header">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div class="modal-title">📥 Desktop App Customizer</div>
+        <span class="host-pill" style="font-size: 0.68rem; padding: 3px 8px; background: rgba(35, 165, 90, 0.2); color: #7bf1a8; border-color: rgba(35, 165, 90, 0.4);">STANDALONE TOOL</span>
+      </div>
+      <button class="modal-close-btn" onclick="closeDownloadModal()">✕</button>
+    </div>
+
+    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px; line-height: 1.45;">
+      Optionally customize your Discord RPC widgets, screen rotation, active games, and <strong>self-hosted Stoat Chat sync</strong> locally or remotely without keeping a browser open.
+    </p>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 18px;">
+      <!-- Windows Executable Card -->
+      <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--card-border); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+            <span style="font-size: 1.6rem;">🪟</span>
+            <div>
+              <div style="font-weight: 700; font-size: 0.95rem; color: #fff;">Windows Executable (.exe)</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted);">Portable • No Python Needed</div>
+            </div>
+          </div>
+          <p style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; margin-bottom: 14px;">
+            Standalone single-file desktop application with custom controller icon and native dark theme. Runs on Windows 10/11 out-of-the-box.
+          </p>
+        </div>
+        <a href="/download/app" download class="btn" style="background: var(--accent); color: #fff; text-decoration: none; padding: 10px 14px; border-radius: 8px; font-weight: 600; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; gap: 8px;">
+          ⬇️ Download DiscordRPC-Customizer.exe
+        </a>
+      </div>
+
+      <!-- Python Script Card -->
+      <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--card-border); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+            <span style="font-size: 1.6rem;">🐍</span>
+            <div>
+              <div style="font-weight: 700; font-size: 0.95rem; color: #fff;">Python GUI Script (.pyw)</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted);">Cross-Platform • Windows / Linux / Mac</div>
+            </div>
+          </div>
+          <p style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; margin-bottom: 14px;">
+            Lightweight Python/Tkinter GUI script. Directly modifies local <code>config.json</code> or manages remote instances over HTTP/HTTPS.
+          </p>
+        </div>
+        <a href="/download/customizer.pyw" download class="btn" style="background: rgba(255, 255, 255, 0.08); color: var(--text); border: 1px solid var(--card-border); text-decoration: none; padding: 10px 14px; border-radius: 8px; font-weight: 600; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; gap: 8px;">
+          📄 Download DiscordRPC-Customizer.pyw
+        </a>
+      </div>
+    </div>
+
+    <!-- Feature Checklist -->
+    <div style="background: rgba(88, 101, 242, 0.06); border: 1px solid rgba(88, 101, 242, 0.2); border-radius: 10px; padding: 14px 16px;">
+      <div style="font-weight: 600; font-size: 0.82rem; margin-bottom: 8px; color: #b5c2f8;">✨ Desktop Customizer Capabilities:</div>
+      <ul style="font-size: 0.76rem; color: var(--text-muted); margin: 0; padding-left: 18px; line-height: 1.55;">
+        <li><strong>Self-Hosted Stoat Chat:</strong> Full support for custom instance URLs (e.g. <code>https://stoat.protutech.vip</code> or local LAN IP), User/Bot/Bearer/Webhook authentication, and live connection latency testing.</li>
+        <li><strong>Local &amp; Remote Modes:</strong> Automatically edits <code>config.json</code> when placed in the DiscordRPC directory, or connects to your live server with Host Key authentication.</li>
+        <li><strong>Live Hardware &amp; Storage Stats:</strong> View node uptime, CPU/RAM, and storage drives (including the new NVMe SN770 &amp; local-lvm pools).</li>
+        <li><strong>Real-Time Game Hub:</strong> See all running games (Roblox, Minecraft, etc.) and toggle mute per-game with a single click.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
 <script>
   let autoRefresh = true;
   let timerId = null;
@@ -1792,6 +1867,22 @@
   function closeDirectoryModalOnBg(e) {
     if (e.target.id === 'directory-modal') {
       closeDirectoryModal();
+    }
+  }
+
+  function openDownloadModal() {
+    const modal = document.getElementById('download-modal');
+    if (modal) modal.classList.add('show');
+  }
+
+  function closeDownloadModal() {
+    const modal = document.getElementById('download-modal');
+    if (modal) modal.classList.remove('show');
+  }
+
+  function closeDownloadModalOnBg(e) {
+    if (e.target.id === 'download-modal') {
+      closeDownloadModal();
     }
   }
 
@@ -2472,6 +2563,8 @@
     if (selectStoatType) selectStoatType.value = cfg.stoat_token_type || "user";
     const selectStoatPres = document.getElementById('select-stoat-presence');
     if (selectStoatPres) selectStoatPres.value = cfg.stoat_presence || "Online";
+    const inputStoatTpl = document.getElementById('input-stoat-template');
+    if (inputStoatTpl) inputStoatTpl.value = cfg.stoat_template || "{details} • {state}";
 
     // Other Widgets
     const setChk = (id, val) => {
@@ -2526,6 +2619,7 @@
       stoat_token: document.getElementById('input-stoat-token').value.trim(),
       stoat_token_type: document.getElementById('select-stoat-token-type').value,
       stoat_presence: document.getElementById('select-stoat-presence').value,
+      stoat_template: (document.getElementById('input-stoat-template')?.value || "{details} • {state}").trim(),
 
       enable_active_games_hub: document.getElementById('chk-widget-games-hub').checked,
       enable_steam_screen: document.getElementById('chk-widget-steam').checked,
@@ -2597,15 +2691,22 @@
     resBox.textContent = 'Verifying with Stoat API...';
     try {
       const type = document.getElementById('select-stoat-token-type').value;
+      if (type === 'webhook') {
+        resBox.className = 'test-result-box success';
+        resBox.textContent = `Webhook mode ready (URL configured)`;
+        return;
+      }
+
       const headers = { 'Content-Type': 'application/json' };
       if (type === 'bot') headers['x-bot-token'] = token;
+      else if (type === 'bearer') headers['Authorization'] = 'Bearer ' + token;
       else headers['x-session-token'] = token;
 
       const res = await fetch(url + '/users/@me', { headers });
       if (res.ok) {
         const u = await res.json();
         resBox.className = 'test-result-box success';
-        resBox.textContent = `Connected as ${u.username || 'User'}!`;
+        resBox.textContent = `Connected as ${u.username || u.name || 'User'}!`;
       } else {
         resBox.className = 'test-result-box error';
         resBox.textContent = `Stoat returned HTTP ${res.status}`;

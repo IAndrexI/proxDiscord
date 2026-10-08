@@ -1810,27 +1810,61 @@ def get_cached_mc_server_status(cfg):
 def sync_stoat_status(current_screen, cfg):
     """
     Syncs current active Discord RPC screen details and state to Stoat / Revolt Chat.
-    Uses PATCH https://api.stoat.chat/users/@me (or configured stoat_api_url)
+    Supports official or self-hosted Stoat servers, user tokens, bot tokens, bearer tokens, and webhooks.
     """
     if not cfg.get("enable_stoat_sync", False):
         return
     token = str(cfg.get("stoat_token", "")).strip()
+    api_url = str(cfg.get("stoat_api_url", "https://api.stoat.chat")).rstrip("/")
+    if not api_url:
+        return
+
+    token_type = str(cfg.get("stoat_token_type", "user")).lower()
+    
+    # Template formatting
+    details = current_screen.get("details", "")
+    state = current_screen.get("state", "")
+    name = current_screen.get("name", "")
+    tpl = cfg.get("stoat_template", "{details} • {state}")
+    try:
+        status_text = tpl.format(details=details, state=state, name=name)
+    except Exception:
+        status_text = f"{details} | {state}" if details or state else name
+
+    if len(status_text) > 120:
+        status_text = status_text[:117] + "..."
+
+    # If webhook mode: POST message payload to webhook or channel URL
+    if token_type == "webhook":
+        target_url = api_url
+        if token and not target_url.endswith(token):
+            if "/" not in token:
+                target_url = f"{api_url}/webhooks/{token}"
+            elif token.startswith("http"):
+                target_url = token
+        payload = {
+            "content": f"🎮 **Discord RPC Update**: {status_text}"
+        }
+        def _do_webhook():
+            try:
+                requests.post(target_url, json=payload, timeout=4.0)
+            except Exception:
+                pass
+        threading.Thread(target=_do_webhook, daemon=True).start()
+        return
+
     if not token:
         return
 
-    api_url = str(cfg.get("stoat_api_url", "https://api.stoat.chat")).rstrip("/")
-    token_type = str(cfg.get("stoat_token_type", "user")).lower()
     headers = {
         "Content-Type": "application/json"
     }
     if token_type == "bot":
         headers["x-bot-token"] = token
+    elif token_type == "bearer":
+        headers["Authorization"] = f"Bearer {token}"
     else:
         headers["X-Session-Token"] = token
-
-    status_text = f"{current_screen.get('details', '')} | {current_screen.get('state', '')}"
-    if len(status_text) > 120:
-        status_text = status_text[:117] + "..."
 
     payload = {
         "status": {
@@ -1896,6 +1930,9 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Host-Key")
         self.end_headers()
 
+    def do_HEAD(self):
+        self.do_GET()
+
     def do_GET(self):
         url_parts = urllib.parse.urlparse(self.path)
         parsed_path = url_parts.path
@@ -1958,6 +1995,9 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
                 "stoat_token": cfg.get("stoat_token", ""),
                 "stoat_token_type": cfg.get("stoat_token_type", "user"),
                 "stoat_presence": cfg.get("stoat_presence", "Online"),
+                "stoat_template": cfg.get("stoat_template", "{details} • {state}"),
+                "enable_storage_screen": cfg.get("enable_storage_screen", True),
+                "server_label": cfg.get("server_label", "Protutech"),
                 "enable_speed_screen": cfg.get("enable_speed_screen", True),
                 "enable_steam_screen": cfg.get("enable_steam_screen", True),
                 "enable_github_screen": cfg.get("enable_github_screen", True),
@@ -2187,6 +2227,46 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
 
+        elif parsed_path in ("/download/app", "/download/customizer.exe", "/download/exe"):
+            exe_path = os.path.join(LOG_DIR, "bin", "DiscordRPC-Customizer.exe")
+            if os.path.isfile(exe_path):
+                try:
+                    with open(exe_path, "rb") as f:
+                        data = f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/vnd.microsoft.portable-executable")
+                    self.send_header("Content-Disposition", 'attachment; filename="DiscordRPC-Customizer.exe"')
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                except Exception:
+                    pass
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"Desktop customizer executable not found. Please compile or download the python script.")
+
+        elif parsed_path in ("/download/customizer.py", "/download/customizer.pyw", "/download/py"):
+            py_path = os.path.join(LOG_DIR, "customizer_app.py")
+            if os.path.isfile(py_path):
+                try:
+                    with open(py_path, "rb") as f:
+                        data = f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/x-python")
+                    self.send_header("Content-Disposition", 'attachment; filename="DiscordRPC-Customizer.pyw"')
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                except Exception:
+                    pass
+            self.send_response(404)
+            self.end_headers()
+
         else:
             self.send_response(404)
             self.end_headers()
@@ -2248,7 +2328,8 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
                     "enable_minecraft_server_screen", "minecraft_server_address",
                     "minecraft_server_port", "minecraft_server_label",
                     "enable_market_screen", "market_crypto_list", "market_stocks_list", "market_cache_minutes",
-                    "enable_stoat_sync", "stoat_api_url", "stoat_token", "stoat_token_type", "stoat_presence",
+                    "enable_stoat_sync", "stoat_api_url", "stoat_token", "stoat_token_type", "stoat_presence", "stoat_template",
+                    "enable_storage_screen", "server_label",
                     "enable_speed_screen", "enable_steam_screen", "enable_github_screen",
                     "enable_free_games_screen", "enable_game_activity", "enable_active_games_hub",
                     "speedtest_interval_minutes", "steam_cache_minutes",

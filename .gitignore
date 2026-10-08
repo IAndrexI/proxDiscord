@@ -16,8 +16,10 @@ __pycache__/
 Thumbs.db
 .DS_Store
 
-# Binaries
+# Binaries and Builds
 bin/
+build/
+*.spec
 
 # Cache
 speed_cache.json
