@@ -63,6 +63,8 @@ class CustomizerApp(tk.Tk):
         self.enable_mc_server = tk.BooleanVar(value=True)
         self.enable_market = tk.BooleanVar(value=True)
         self.enable_games_hub = tk.BooleanVar(value=True)
+        self.enable_game_activity = tk.BooleanVar(value=True)
+        self.game_alternate_rotation = tk.BooleanVar(value=True)
         self.enable_speed = tk.BooleanVar(value=True)
         self.enable_steam = tk.BooleanVar(value=True)
         self.enable_github = tk.BooleanVar(value=True)
@@ -221,6 +223,8 @@ class CustomizerApp(tk.Tk):
             ("🌐 Minecraft Dedicated Server (Online/Max Players & MOTD)", self.enable_mc_server),
             ("📈 Recommended Crypto & Stocks (BTC, ETH, SOL, NVDA, AAPL, MSFT, SPY)", self.enable_market),
             ("🎮 Active Games Hub (Multi-Game Session & Party Counter)", self.enable_games_hub),
+            ("🕹️ Detect & Show Active PC Games (WAR DOGS, Roblox, CS2, etc.)", self.enable_game_activity),
+            ("🔄 Interleave Game Every Other Screen ([Screen] ➔ [Game] ➔ [Screen] ➔ [Game])", self.game_alternate_rotation),
             ("⚡ Network Bandwidth & Latency Speedtest (Cloudflare)", self.enable_speed),
             ("🏆 Steam Profile (Level 100, 3,558 Badges & Playtime)", self.enable_steam),
             ("🐙 GitHub Repositories (Public Projects Counter)", self.enable_github),
@@ -411,6 +415,8 @@ class CustomizerApp(tk.Tk):
         self.enable_mc_server.set(cfg.get("enable_minecraft_server_screen", True))
         self.enable_market.set(cfg.get("enable_market_screen", True))
         self.enable_games_hub.set(cfg.get("enable_active_games_hub", True))
+        self.enable_game_activity.set(cfg.get("enable_game_activity", True))
+        self.game_alternate_rotation.set(cfg.get("game_alternate_rotation", True))
         self.enable_speed.set(cfg.get("enable_speed_screen", True))
         self.enable_steam.set(cfg.get("enable_steam_screen", True))
         self.enable_github.set(cfg.get("enable_github_screen", True))
@@ -563,6 +569,8 @@ class CustomizerApp(tk.Tk):
             "enable_minecraft_server_screen": self.enable_mc_server.get(),
             "enable_market_screen": self.enable_market.get(),
             "enable_active_games_hub": self.enable_games_hub.get(),
+            "enable_game_activity": self.enable_game_activity.get(),
+            "game_alternate_rotation": self.game_alternate_rotation.get(),
             "enable_speed_screen": self.enable_speed.get(),
             "enable_steam_screen": self.enable_steam.get(),
             "enable_github_screen": self.enable_github.get(),

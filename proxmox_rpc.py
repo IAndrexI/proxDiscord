@@ -2004,6 +2004,7 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
                 "enable_free_games_screen": cfg.get("enable_free_games_screen", True),
                 "enable_game_activity": cfg.get("enable_game_activity", False),
                 "enable_active_games_hub": cfg.get("enable_active_games_hub", True),
+                "game_alternate_rotation": cfg.get("game_alternate_rotation", True),
                 "disabled_games": cfg.get("disabled_games", []),
                 "custom_games": cfg.get("custom_games", {}),
                 "speedtest_interval_minutes": cfg.get("speedtest_interval_minutes", 30),
@@ -2331,7 +2332,7 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
                     "enable_stoat_sync", "stoat_api_url", "stoat_token", "stoat_token_type", "stoat_presence", "stoat_template",
                     "enable_storage_screen", "server_label",
                     "enable_speed_screen", "enable_steam_screen", "enable_github_screen",
-                    "enable_free_games_screen", "enable_game_activity", "enable_active_games_hub",
+                    "enable_free_games_screen", "enable_game_activity", "enable_active_games_hub", "game_alternate_rotation",
                     "speedtest_interval_minutes", "steam_cache_minutes",
                     "github_cache_minutes", "free_games_cache_minutes",
                     "hidden_screens", "custom_trackers", "disabled_games", "custom_games", "host_key"
@@ -2963,6 +2964,12 @@ KNOWN_GAMES = {
     "javaw.exe": ("Minecraft", "minecraft"),
     "minecraft.exe": ("Minecraft", "minecraft"),
     "minecraftbedrock.exe": ("Minecraft (Bedrock)", "minecraft"),
+    "wardogsclient-win64-shipping.exe": ("WAR DOGS", "wardogs"),
+    "wardogsclient.exe": ("WAR DOGS", "wardogs"),
+    "wardogs.exe": ("WAR DOGS", "wardogs"),
+    "war_dogs.exe": ("WAR DOGS", "wardogs"),
+    "cs2.exe": ("Counter-Strike 2", "cs2"),
+    "csgo.exe": ("Counter-Strike 2", "cs2"),
     "valorant.exe": ("Valorant", "valorant"),
     "valorant-win64-shipping.exe": ("Valorant", "valorant"),
     "league of legends.exe": ("League of Legends", "league_of_legends"),
@@ -3066,17 +3073,45 @@ def detect_active_games(cfg, max_games=3, return_pids=False):
             return
         if "spiral" in name.lower() or "spiral" in (slug or "").lower():
             return
-        if name.lower() not in seen_names:
-            seen_names.add(name.lower())
-            detected.append({
-                "name": name,
-                "slug": slug,
-                "steam_appid": steam_appid,
-                "exe_name": exe_name,
-                "discord_icon": discord_icon,
-                "pid": pid,
-                "pids": pids or []
-            })
+
+        clean_name = re.sub(r'[^a-z0-9]', '', name.lower())
+        clean_slug = re.sub(r'[^a-z0-9]', '', (slug or '').lower())
+
+        match = None
+        for g in detected:
+            g_clean_name = re.sub(r'[^a-z0-9]', '', g["name"].lower())
+            g_clean_slug = re.sub(r'[^a-z0-9]', '', (g.get("slug") or '').lower())
+            if ((clean_name and g_clean_name == clean_name) or
+                (clean_slug and g_clean_slug == clean_slug) or
+                (steam_appid and g.get("steam_appid") == steam_appid)):
+                match = g
+                break
+
+        if match:
+            if pid and not match.get("pid"):
+                match["pid"] = pid
+            if pids and not match.get("pids"):
+                match["pids"] = pids
+            if exe_name and not match.get("exe_name"):
+                match["exe_name"] = exe_name
+            if steam_appid and not match.get("steam_appid"):
+                match["steam_appid"] = steam_appid
+            if discord_icon and not match.get("discord_icon"):
+                match["discord_icon"] = discord_icon
+            if " " in name and " " not in match["name"]:
+                match["name"] = name
+            return
+
+        seen_names.add(name.lower())
+        detected.append({
+            "name": name,
+            "slug": slug,
+            "steam_appid": steam_appid,
+            "exe_name": exe_name,
+            "discord_icon": discord_icon,
+            "pid": pid,
+            "pids": pids or []
+        })
 
     # 1. Check Steam RunningAppID
     try:
@@ -3280,6 +3315,9 @@ BUILTIN_GAME_ICONS = {
     "market": DEFAULT_MARKET_ICON,
     "stocks": DEFAULT_MARKET_ICON,
     "crypto": DEFAULT_MARKET_ICON,
+    "wardogs": "https://cdn.cloudflare.steamstatic.com/steam/apps/1867240/header.jpg",
+    "cs2": "https://cdn.discordapp.com/app-icons/1402418579973865502/10d10b7f6fa4e9d6d7a12368146747df.png",
+    "csgo": "https://cdn.discordapp.com/app-icons/1402418579973865502/10d10b7f6fa4e9d6d7a12368146747df.png",
     "roblox": "https://cdn.discordapp.com/app-icons/363445589247131668/f2b60e350a2097289b3b0b877495e55f.png",
     "minecraft": "https://cdn.discordapp.com/app-icons/1402418491272986635/166fbad351ecdd02d11a3b464748f66b.png",
     "valorant": "https://cdn.discordapp.com/app-icons/700136079562375258/11f81959f4fdd76ca6c39c59eac256c1.png",
@@ -3459,6 +3497,10 @@ def main():
     rpc = None
     boot_time = int(time.time())
     screen_index = 0
+    normal_rotation_index = 0
+    game_rotation_index = 0
+    is_game_turn = False
+    _last_rpc_pid = None
     last_screen_count = 4 if cfg.get("enable_minecraft_screen", False) else 3
     next_tick = time.time()
     _previously_active_pids = set()
@@ -3625,8 +3667,10 @@ def main():
                             "start_time": hub_start
                         })
 
-                    # 3b. Separate screens for each running game (up to 3)
-                    for game_name, session in list(_game_sessions.items())[:3]:
+                    # 3b. Separate screens for each running game (up to 5)
+                    for game_name, session in list(_game_sessions.items())[:5]:
+                        if game_name.lower() == "minecraft" and cfg.get("enable_minecraft_screen", True):
+                            continue
                         elapsed = format_uptime(now - session["start_time"])
                         screens.append({
                             "name": f"Game: {game_name}",
@@ -3931,12 +3975,59 @@ def main():
                         selected_screen = s
                         break
 
+            # Partition active game screens vs normal rotation screens
+            def _is_active_game_screen(s):
+                stype = s.get("screen_type", "")
+                sname = s.get("name", "")
+                if (stype == "game" or sname.startswith("Game: ")) and s.get("game_info"):
+                    return True
+                if stype == "minecraft" and s.get("mc_status", {}).get("online"):
+                    return True
+                return False
+
+            active_game_screens = [s for s in screens if _is_active_game_screen(s)]
+            # If multiple games are running and hub is enabled, also include Hub in game alternation
+            if len(active_games) > 1 and cfg.get("enable_active_games_hub", True):
+                hub_s = next((s for s in screens if s.get("screen_type") == "games_hub"), None)
+                if hub_s and hub_s not in active_game_screens:
+                    active_game_screens.append(hub_s)
+
+            if active_game_screens:
+                normal_screens = [s for s in screens if s not in active_game_screens and s.get("screen_type") != "games_hub"]
+            else:
+                normal_screens = list(screens)
+
             if selected_screen:
                 current_screen = selected_screen
+                screen_index = screens.index(selected_screen) if selected_screen in screens else 0
             else:
-                current_screen = screens[screen_index % len(screens)]
+                # Interleaved / alternating game rotation:
+                # If playing a game, show active game on every other change,
+                # while normal screens cycle through their original order.
+                alternate_enabled = cfg.get("game_alternate_rotation", True)
+                if alternate_enabled and active_game_screens and normal_screens:
+                    if is_game_turn:
+                        current_screen = active_game_screens[game_rotation_index % len(active_game_screens)]
+                        game_rotation_index = (game_rotation_index + 1) % len(active_game_screens)
+                        is_game_turn = False
+                    else:
+                        current_screen = normal_screens[normal_rotation_index % len(normal_screens)]
+                        normal_rotation_index = (normal_rotation_index + 1) % len(normal_screens)
+                        is_game_turn = True
+                elif active_game_screens and not normal_screens:
+                    current_screen = active_game_screens[game_rotation_index % len(active_game_screens)]
+                    game_rotation_index = (game_rotation_index + 1) % len(active_game_screens)
+                    is_game_turn = False
+                else:
+                    is_game_turn = False
+                    current_screen = screens[screen_index % len(screens)]
+                    screen_index = (screen_index + 1) % len(screens)
+
                 last_screen_count = max(1, len(screens))
-                screen_index = (screen_index + 1) % len(screens)
+                if current_screen in screens:
+                    screen_index = screens.index(current_screen)
+                else:
+                    screen_index = normal_rotation_index
 
             default_large = cfg.get("large_image", "protutech")
             game_images = cfg.get("game_images", {})
@@ -4348,35 +4439,28 @@ def main():
                     g_pid = current_screen["game_info"].get("pid")
                     if g_pid and is_pid_alive(g_pid):
                         target_pid = g_pid
-                elif detected_games:
-                    chosen_pid = None
-                    for target_slug in ("roblox",):
+                elif current_screen.get("screen_type") == "minecraft" and current_screen.get("mc_status", {}).get("online"):
+                    mc_pid = current_screen.get("mc_status", {}).get("pid")
+                    if mc_pid and is_pid_alive(mc_pid):
+                        target_pid = mc_pid
+                    else:
                         for g in detected_games:
-                            if g.get("slug") == target_slug:
-                                for p in g.get("pids", [g.get("pid")]):
-                                    if is_pid_alive(p):
-                                        chosen_pid = p
-                                        break
-                            if chosen_pid:
-                                break
-                        if chosen_pid:
-                            break
-                    if not chosen_pid:
-                        for g in detected_games:
-                            p = g.get("pid")
-                            if p and is_pid_alive(p):
-                                chosen_pid = p
-                                break
-                    if chosen_pid:
-                        target_pid = chosen_pid
+                            if g.get("slug") == "minecraft":
+                                p = g.get("pid")
+                                if p and is_pid_alive(p):
+                                    target_pid = p
+                                    break
+                else:
+                    # Normal screen rotation or Games Hub: display under Python's main PID
+                    target_pid = os.getpid()
 
-            # Actively suppress and clear all other competing game PIDs
-            for p in (all_game_pids | _previously_active_pids):
-                if p != target_pid and is_pid_alive(p):
-                    try:
-                        rpc.clear(pid=p)
-                    except Exception:
-                        pass
+            # Cleanly clear previous target PID if switching target processes to prevent ghost presences
+            if _last_rpc_pid and _last_rpc_pid != target_pid:
+                try:
+                    rpc.clear(pid=_last_rpc_pid)
+                except Exception:
+                    pass
+            _last_rpc_pid = target_pid
 
             # If target_pid is a game process, clear Python's own PID to prevent duplicate ghost activities
             if target_pid != os.getpid():

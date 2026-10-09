@@ -1390,6 +1390,16 @@
             <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px;">
               Shows running game count and dynamic party size [len(games), max(4)]. Individual game screens will also rotate.
             </p>
+            <div style="display: flex; flex-direction: column; gap: 6px; margin: 8px 0; background: rgba(0,0,0,0.15); padding: 8px 10px; border-radius: 6px;">
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.8rem; color: #f2f3f5;">
+                <input type="checkbox" id="chk-widget-game-activity">
+                <span>Detect &amp; Display Active PC Games (WAR DOGS, Roblox, CS2, etc.)</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.8rem; color: #f2f3f5;">
+                <input type="checkbox" id="chk-widget-game-alternate">
+                <span>Alternate active game every other turn (<code style="color: #b5c2f8;">[Normal] &rarr; [Game] &rarr; [Normal]</code>)</span>
+              </label>
+            </div>
             <button type="button" class="btn" style="padding: 5px 12px; font-size: 0.75rem; align-self: flex-start;" onclick="switchHostTab('games')">🎮 Manage Running &amp; Muted Games →</button>
           </div>
         </div>
@@ -1626,6 +1636,16 @@
             <label for="cfg-freegames-cache">Free Games Cache TTL (Minutes)</label>
             <input type="number" id="cfg-freegames-cache" class="form-input" min="15" max="360" step="1">
             <span class="label-desc">GamerPower promo giveaway sync interval</span>
+          </div>
+        </div>
+
+        <div style="background: rgba(88, 101, 242, 0.08); border: 1px solid rgba(88, 101, 242, 0.25); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; font-size: 0.88rem; color: #f2f3f5; margin-bottom: 4px;">
+            <input type="checkbox" id="cfg-game-alternate" style="width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer;">
+            <span>🎮 Interleave Active Game Every Other Change (Alternating Rotation)</span>
+          </label>
+          <div style="font-size: 0.76rem; color: var(--text-muted); margin-left: 28px; line-height: 1.4;">
+            When playing a game (Minecraft, Roblox, WAR DOGS, CS2, etc.), shows the active game after every normal screen (<code style="color: #b5c2f8;">[Screen 1] &rarr; [Active Game] &rarr; [Screen 2] &rarr; [Active Game] &rarr; [Screen 3]...</code>) while preserving the natural rotation order.
           </div>
         </div>
 
@@ -2572,6 +2592,8 @@
       if (el) el.checked = val;
     };
     setChk('chk-widget-games-hub', cfg.enable_active_games_hub !== false);
+    setChk('chk-widget-game-activity', cfg.enable_game_activity !== false);
+    setChk('chk-widget-game-alternate', cfg.game_alternate_rotation !== false);
     setChk('chk-widget-steam', cfg.enable_steam_screen !== false);
     setChk('chk-widget-mc-client', cfg.enable_minecraft_screen !== false);
     setChk('chk-widget-mc-only', !!cfg.minecraft_only_when_playing);
@@ -2592,6 +2614,7 @@
     setVal('cfg-steam-cache', cfg.steam_cache_minutes || 15);
     setVal('cfg-github-cache', cfg.github_cache_minutes || 30);
     setVal('cfg-freegames-cache', cfg.free_games_cache_minutes || 60);
+    setChk('cfg-game-alternate', cfg.game_alternate_rotation !== false);
 
     // 3. Custom Trackers List
     renderCustomTrackersList(cfg);
@@ -2622,6 +2645,8 @@
       stoat_template: (document.getElementById('input-stoat-template')?.value || "{details} • {state}").trim(),
 
       enable_active_games_hub: document.getElementById('chk-widget-games-hub').checked,
+      enable_game_activity: document.getElementById('chk-widget-game-activity')?.checked !== false,
+      game_alternate_rotation: document.getElementById('chk-widget-game-alternate')?.checked !== false,
       enable_steam_screen: document.getElementById('chk-widget-steam').checked,
       enable_minecraft_screen: document.getElementById('chk-widget-mc-client').checked,
       minecraft_only_when_playing: document.getElementById('chk-widget-mc-only').checked,
@@ -2927,6 +2952,7 @@
     const patch = {
       update_interval_seconds: parseInt(document.getElementById('cfg-interval').value, 10) || 6,
       active_screen: document.getElementById('cfg-active-screen').value,
+      game_alternate_rotation: document.getElementById('cfg-game-alternate') ? document.getElementById('cfg-game-alternate').checked : true,
       speedtest_interval_minutes: parseInt(document.getElementById('cfg-speedtest-interval').value, 10) || 30,
       steam_cache_minutes: parseInt(document.getElementById('cfg-steam-cache').value, 10) || 15,
       github_cache_minutes: parseInt(document.getElementById('cfg-github-cache').value, 10) || 30,
