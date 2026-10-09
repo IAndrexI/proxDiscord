@@ -1114,7 +1114,11 @@ def fetch_steam_profile(steam_id=None):
             if p_elem is not None and p_elem.text:
                 persona = p_elem.text
 
-            a_elem = root.find("avatarFull") or root.find("avatarMedium") or root.find("avatarIcon")
+            a_elem = root.find("avatarFull")
+            if a_elem is None:
+                a_elem = root.find("avatarMedium")
+            if a_elem is None:
+                a_elem = root.find("avatarIcon")
             if a_elem is not None and a_elem.text:
                 avatar_url = a_elem.text.replace("avatars.fastly.steamstatic.com", "avatars.steamstatic.com")
 
@@ -2014,6 +2018,9 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
                 "hidden_screens": cfg.get("hidden_screens", []),
                 "custom_trackers": cfg.get("custom_trackers", []),
                 "host_key": cfg.get("host_key", "andrex-host-2026"),
+                "discord_client_id": cfg.get("discord_client_id", "1548928413337788486"),
+                "screen_client_ids": cfg.get("screen_client_ids", {}),
+                "game_client_ids": cfg.get("game_client_ids", {}),
                 "is_host": True
             }
             payload = json.dumps(safe_cfg).encode("utf-8")
@@ -2335,7 +2342,8 @@ class DashboardRequestHandler(http.server.BaseHTTPRequestHandler):
                     "enable_free_games_screen", "enable_game_activity", "enable_active_games_hub", "game_alternate_rotation",
                     "speedtest_interval_minutes", "steam_cache_minutes",
                     "github_cache_minutes", "free_games_cache_minutes",
-                    "hidden_screens", "custom_trackers", "disabled_games", "custom_games", "host_key"
+                    "hidden_screens", "custom_trackers", "disabled_games", "custom_games", "host_key",
+                    "discord_client_id", "screen_client_ids", "game_client_ids"
                 ]
 
                 for k in allowed_keys:
@@ -3360,6 +3368,183 @@ BUILTIN_GAME_ICONS = {
     "subnautica": "https://cdn.discordapp.com/app-icons/1402416999887278220/3ada80e2f8d7d86ec75587d8ba783756.png"
 }
 
+GAME_DISCORD_CLIENT_IDS = {
+    "roblox": "363445589247131668",
+    "minecraft": "1402418491272986635",
+    "wardogs": "1442735719008309339",
+    "war dogs": "1442735719008309339",
+    "wardogsclient-win64-shipping.exe": "1442735719008309339",
+    "wardogsclient.exe": "1442735719008309339",
+    "wardogs.exe": "1442735719008309339",
+    "cs2": "1158877933042143272",
+    "counter-strike 2": "1158877933042143272",
+    "cs2.exe": "1158877933042143272",
+    "csgo": "1158877933042143272",
+    "csgo.exe": "1158877933042143272",
+    "steam": "1441992353979170936",
+    "valorant": "700136079562375258",
+    "fortnite": "1402418703554842694",
+    "league_of_legends": "1402418696126992445",
+    "league of legends": "1402418696126992445",
+    "genshin_impact": "762434991303950386",
+    "genshin impact": "762434991303950386",
+    "zenless_zone_zero": "1257819671114289184",
+    "zenless zone zero": "1257819671114289184",
+    "overwatch": "356875221078245376",
+    "overwatch 2": "356875221078245376",
+    "apex_legends": "542075586886107149",
+    "apex legends": "542075586886107149",
+    "gta5": "1402418714716143646",
+    "grand theft auto v": "1402418714716143646",
+    "cyberpunk2077": "787443973538971748",
+    "cyberpunk 2077": "787443973538971748",
+    "palworld": "1197827812623650866",
+    "eldenring": "1402418436809953330",
+    "elden ring": "1402418436809953330",
+    "helldivers2": "1205090671527071784",
+    "helldivers 2": "1205090671527071784",
+    "rust": "1402418594532298837",
+    "destiny2": "372438022647578634",
+    "destiny 2": "372438022647578634",
+    "rocket_league": "356877880938070016",
+    "rocket league": "356877880938070016",
+    "terraria": "1402418344912752671",
+    "rainbowsix": "356876590342340608",
+    "rainbow six siege": "356876590342340608",
+    "deadbydaylight": "357607133254254632",
+    "dead by daylight": "357607133254254632",
+    "among us": "753735165842882571",
+    "amongus": "753735165842882571",
+    "lethal company": "1167674267748540516",
+    "lethalcompany": "1167674267748540516",
+    "blackmythwukong": "1272842103910699040",
+    "black myth: wukong": "1272842103910699040"
+}
+
+_detectable_apps_cache = None
+_detectable_apps_lock = threading.Lock()
+
+def lookup_detectable_app_id(exe_name, game_name):
+    """Dynamically looks up Discord Application ID from Discord's detectable apps API."""
+    global _detectable_apps_cache
+    with _detectable_apps_lock:
+        if _detectable_apps_cache is None:
+            try:
+                resp = requests.get("https://discord.com/api/v10/applications/detectable", timeout=3.5)
+                if resp.status_code == 200:
+                    _detectable_apps_cache = resp.json()
+                else:
+                    _detectable_apps_cache = []
+            except Exception:
+                _detectable_apps_cache = []
+
+    if not _detectable_apps_cache:
+        return None
+
+    clean_exe = (exe_name or "").lower().strip()
+    clean_game = (game_name or "").lower().strip()
+
+    for item in _detectable_apps_cache:
+        item_id = item.get("id")
+        if clean_exe:
+            for ex in item.get("executables", []):
+                ename = ex.get("name", "").lower()
+                if ename.startswith(">"):
+                    ename = ename[1:]
+                if "/" in ename:
+                    ename = ename.split("/")[-1]
+                if "\\" in ename:
+                    ename = ename.split("\\")[-1]
+                if ename and ename == clean_exe:
+                    return str(item_id)
+        if clean_game and item.get("name", "").lower() == clean_game:
+            return str(item_id)
+
+    return None
+
+
+def resolve_screen_client_id(screen, cfg):
+    """
+    Resolves the appropriate Discord Application Client ID for the screen
+    so Discord displays the actual application/game name rather than a generic app name.
+    """
+    default_cid = str(cfg.get("discord_client_id", "1548928413337788486")).strip()
+
+    # 1. Screen-specific custom override in config
+    screen_cids = cfg.get("screen_client_ids", {})
+    s_name = screen.get("name", "")
+    s_type = screen.get("screen_type", "")
+    for k in (s_name.lower(), s_type.lower()):
+        if k in screen_cids:
+            return str(screen_cids[k]).strip()
+
+    # 2. Game screen
+    if s_type == "game" or s_name.startswith("Game: "):
+        g_info = screen.get("game_info") or {}
+        g_name = (g_info.get("name") or s_name.replace("Game: ", "")).lower().strip()
+        g_slug = (g_info.get("slug") or "").lower().strip()
+        g_exe = (g_info.get("exe_name") or "").lower().strip()
+
+        # Check explicit game override
+        game_cids = cfg.get("game_client_ids", {})
+        for key in (g_name, g_slug, g_exe):
+            if key in game_cids:
+                return str(game_cids[key]).strip()
+
+        # Check known popular game client IDs
+        for key in (g_slug, g_name, g_name.replace(" ", ""), g_exe):
+            if key in GAME_DISCORD_CLIENT_IDS:
+                return GAME_DISCORD_CLIENT_IDS[key]
+
+        # Check detectable cache (by exe name or game name)
+        aid = lookup_detectable_app_id(g_exe, g_name)
+        if aid:
+            return str(aid)
+
+        return default_cid
+
+    # 3. Minecraft Client
+    if s_type == "minecraft" or s_name == "Minecraft":
+        return GAME_DISCORD_CLIENT_IDS.get("minecraft", "1402418491272986635")
+
+    # 4. Steam Profile
+    if s_type == "steam" or s_name == "Steam Profile":
+        return GAME_DISCORD_CLIENT_IDS.get("steam", "1441992353979170936")
+
+    # 5. Default host client ID for system screens (Proxmox, Storage, Miner, Speed, Market, Hub, etc.)
+    return default_cid
+
+
+_rpc_client_cache = {}
+_active_rpc_cid = None
+_rpc_cache_lock = threading.Lock()
+
+def get_cached_rpc(client_id):
+    """Thread-safe retrieval and connection of Discord RPC Presence instances."""
+    global _rpc_client_cache, _active_rpc_cid
+    client_id = str(client_id).strip()
+    with _rpc_cache_lock:
+        if client_id in _rpc_client_cache:
+            return _rpc_client_cache[client_id]
+        if len(_rpc_client_cache) > 6:
+            for old_cid in list(_rpc_client_cache.keys()):
+                if old_cid != _active_rpc_cid and old_cid != client_id:
+                    try:
+                        _rpc_client_cache[old_cid].close()
+                    except Exception:
+                        pass
+                    del _rpc_client_cache[old_cid]
+                    break
+        try:
+            p = Presence(client_id)
+            p.connect()
+            _rpc_client_cache[client_id] = p
+            return p
+        except Exception as e:
+            print(f"[WARN] Failed to connect Presence for client_id {client_id}: {e}", flush=True)
+            return None
+
+
 _game_icon_cache = {}
 
 
@@ -3453,7 +3638,7 @@ def resolve_game_image(game_info, cfg):
 _app_mutex = None
 
 def main():
-    global _app_mutex, _dashboard_state
+    global _app_mutex, _dashboard_state, _active_rpc_cid
     if sys.platform == "win32":
         import ctypes
         kernel32 = ctypes.windll.kernel32
@@ -3507,13 +3692,18 @@ def main():
 
     while True:
         # 1. Ensure Discord RPC connection
-        if rpc is None:
+        if rpc is None or not _rpc_client_cache:
             try:
-                _new_rpc = Presence(client_id)
-                _new_rpc.connect()
-                rpc = _new_rpc
-                print("[INFO] Connected to Discord RPC successfully!", flush=True)
-                next_tick = time.time()
+                rpc = get_cached_rpc(client_id)
+                if rpc:
+                    _active_rpc_cid = client_id
+                    print(f"[INFO] Connected to Discord RPC successfully (Default App ID: {client_id})!", flush=True)
+                    next_tick = time.time()
+                else:
+                    print("[WAIT] Could not connect to Discord RPC (is Discord running?). Retrying in 10s...", flush=True)
+                    time.sleep(10)
+                    next_tick = time.time()
+                    continue
             except DiscordNotFound:
                 rpc = None
                 print("[WAIT] Discord client is not running. Retrying in 10s...", flush=True)
@@ -4454,10 +4644,39 @@ def main():
                     # Normal screen rotation or Games Hub: display under Python's main PID
                     target_pid = os.getpid()
 
+            # Dynamic Application Title Resolution:
+            # Resolves the exact Discord Application Client ID so Discord displays
+            # the application/game name rather than a generic app name.
+            target_cid = resolve_screen_client_id(current_screen, cfg)
+            active_rpc = get_cached_rpc(target_cid) or get_cached_rpc(client_id) or rpc
+
+            # Ensure assets are valid HTTP/HTTPS URLs when sending presence on third-party game Client IDs
+            if target_cid != client_id:
+                if "small_image" in activity_kwargs and not (str(activity_kwargs["small_image"]).startswith("http://") or str(activity_kwargs["small_image"]).startswith("https://")):
+                    activity_kwargs["small_image"] = DEFAULT_PROXMOX_ICON
+                if "large_image" in activity_kwargs and not (str(activity_kwargs["large_image"]).startswith("http://") or str(activity_kwargs["large_image"]).startswith("https://")):
+                    activity_kwargs["large_image"] = DEFAULT_PROXMOX_ICON
+
+            # Cleanly clear prior client ID if switching Discord applications to prevent duplicate/stacked activities
+            if _active_rpc_cid and _active_rpc_cid != target_cid:
+                prev_rpc = _rpc_client_cache.get(_active_rpc_cid)
+                if prev_rpc:
+                    try:
+                        prev_rpc.clear(pid=_last_rpc_pid or os.getpid())
+                    except Exception:
+                        pass
+                    if _last_rpc_pid and _last_rpc_pid != os.getpid():
+                        try:
+                            prev_rpc.clear(pid=os.getpid())
+                        except Exception:
+                            pass
+            _active_rpc_cid = target_cid
+
             # Cleanly clear previous target PID if switching target processes to prevent ghost presences
             if _last_rpc_pid and _last_rpc_pid != target_pid:
                 try:
-                    rpc.clear(pid=_last_rpc_pid)
+                    if active_rpc:
+                        active_rpc.clear(pid=_last_rpc_pid)
                 except Exception:
                     pass
             _last_rpc_pid = target_pid
@@ -4465,7 +4684,8 @@ def main():
             # If target_pid is a game process, clear Python's own PID to prevent duplicate ghost activities
             if target_pid != os.getpid():
                 try:
-                    rpc.clear(pid=os.getpid())
+                    if active_rpc:
+                        active_rpc.clear(pid=os.getpid())
                 except Exception:
                     pass
 
@@ -4473,46 +4693,68 @@ def main():
             for p in list(_previously_active_pids):
                 if p not in all_game_pids and p != target_pid:
                     try:
-                        rpc.clear(pid=p)
+                        if active_rpc:
+                            active_rpc.clear(pid=p)
                     except Exception:
                         pass
                     _previously_active_pids.discard(p)
 
             _previously_active_pids.update(all_game_pids)
 
-            # Update Discord Rich Presence on the chosen priority PID
-            rpc.update(pid=target_pid, **activity_kwargs)
+            # Update Discord Rich Presence on the chosen priority PID & client ID
+            if active_rpc:
+                try:
+                    active_rpc.update(pid=target_pid, **activity_kwargs)
+                except Exception as ex:
+                    # If updating with game PID failed (e.g. process just terminated), fallback to Python PID
+                    if target_pid != os.getpid():
+                        try:
+                            active_rpc.update(pid=os.getpid(), **activity_kwargs)
+                        except Exception:
+                            raise ex
+                    else:
+                        raise ex
+
             sync_stoat_status(current_screen, cfg)
-            print(f"[{time.strftime('%X')}] [Screen {screen_index}/{len(screens)} - {current_screen['name']}] [PID: {target_pid}] {current_screen['details']} | {current_screen['state']}", flush=True)
+            print(f"[{time.strftime('%X')}] [Screen {screen_index}/{len(screens)} - {current_screen['name']}] [CID: {target_cid}] [PID: {target_pid}] {current_screen['details']} | {current_screen['state']}", flush=True)
 
         except requests.exceptions.RequestException as e:
             print(f"[{time.strftime('%X')}] [WARN] Could not reach Proxmox: {e}", flush=True)
             try:
-                rpc.update(
-                    details=f"{cfg.get('server_label', 'Protutech')}: Unreachable",
-                    state="Retrying Proxmox VE connection...",
-                    large_image=cfg.get("large_image", "protutech"),
-                    large_text="Connection error",
-                    start=boot_time
-                )
+                fallback_rpc = _rpc_client_cache.get(client_id) or rpc
+                if fallback_rpc:
+                    fallback_rpc.update(
+                        details=f"{cfg.get('server_label', 'Protutech')}: Unreachable",
+                        state="Retrying Proxmox VE connection...",
+                        large_image=cfg.get("large_image", "protutech"),
+                        large_text="Connection error",
+                        start=boot_time
+                    )
             except Exception:
                 rpc = None
         except (PipeClosed, BrokenPipeError, ConnectionResetError, OSError) as e:
             print(f"[WARN] Discord connection lost ({e}). Reconnecting...", flush=True)
-            try:
-                rpc.close()
-            except Exception:
-                pass
+            with _rpc_cache_lock:
+                for cid, p in list(_rpc_client_cache.items()):
+                    try:
+                        p.close()
+                    except Exception:
+                        pass
+                _rpc_client_cache.clear()
+            _active_rpc_cid = None
             rpc = None
         except Exception as e:
             print(f"[{time.strftime('%X')}] [ERROR] Unexpected: {e}", flush=True)
             err_str = str(e).lower()
             if any(k in err_str for k in ("pipe", "socket", "connect", "client", "closed", "reset", "event", "broken")):
-                try:
-                    if rpc:
-                        rpc.close()
-                except Exception:
-                    pass
+                with _rpc_cache_lock:
+                    for cid, p in list(_rpc_client_cache.items()):
+                        try:
+                            p.close()
+                        except Exception:
+                            pass
+                    _rpc_client_cache.clear()
+                _active_rpc_cid = None
                 rpc = None
 
         # 4. Exact per-screen timing: sleeps exactly (interval - elapsed) seconds
